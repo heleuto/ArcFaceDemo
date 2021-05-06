@@ -142,7 +142,7 @@ const ASF_VERSION ArcFaceEngine::GetVersion()
 	return pVersionInfo;
 }
 
-MRESULT ArcFaceEngine::PreDetectFace(IplImage* image, ASF_SingleFaceInfo& faceRect, bool isRGB)
+MRESULT ArcFaceEngine::PreDetectSingleFace(IplImage* image, ASF_SingleFaceInfo& faceRect, bool isRGB)
 {
 	if (!image)
 	{
@@ -220,7 +220,61 @@ MRESULT ArcFaceEngine::PreDetectFace(IplImage* image, ASF_SingleFaceInfo& faceRe
 	faceRect.faceOrient = detectedFaces.faceOrient[max];
 	cvReleaseImage(&cutImg);
 
-	return res;
+    return res;
+}
+
+MRESULT ArcFaceEngine::PreDetectMultiFace(IplImage *image, ASF_MultiFaceInfo &faceRect, bool isRGB)
+{
+    if (!image)
+    {
+        return -1;
+    }
+
+    IplImage* cutImg = NULL;
+    MRESULT res = MOK;
+
+    if (isRGB)
+    {
+        cutImg = cvCreateImage(cvSize(image->width - (image->width % 4), image->height),
+            IPL_DEPTH_8U, image->nChannels);
+
+        PicCutOut(image, cutImg, 0, 0);
+
+        ASVLOFFSCREEN offscreen = { 0 };
+        ColorSpaceConversion(cutImg, ASVL_PAF_RGB24_B8G8R8, offscreen);
+
+        res = ASFDetectFacesEx(m_hEngine, &offscreen, &faceRect);
+    }
+    else  //IR图像
+    {
+        cv::Mat grayMat;
+        cv::Mat matImg(image, false);						//IplImage转Mat 设为ture为深拷贝
+        cv::cvtColor(matImg, grayMat, CV_BGR2GRAY);
+        IplImage m_GrayImage(grayMat);
+        IplImage* iplGrayMat = &m_GrayImage/*&IplImage(grayMat)*/;		//mat 转 IplImage 浅拷贝
+
+        cutImg = cvCreateImage(cvSize(iplGrayMat->width - (iplGrayMat->width % 4), iplGrayMat->height),
+            IPL_DEPTH_8U, iplGrayMat->nChannels);
+
+        PicCutOut(iplGrayMat, cutImg, 0, 0);
+
+        ASVLOFFSCREEN offscreen = { 0 };
+        ColorSpaceConversion(cutImg, ASVL_PAF_GRAY, offscreen);
+
+        res = ASFDetectFacesEx(m_hEngine, &offscreen, &faceRect);
+    }
+
+    cvReleaseImage(&cutImg);
+
+    if (res != MOK || faceRect.faceNum < 1)
+    {
+        //cvReleaseImage(&cutImg);
+        return -1;
+    }
+
+    //cvReleaseImage(&cutImg);
+
+    return res;
 }
 
 

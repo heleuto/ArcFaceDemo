@@ -1,9 +1,11 @@
 HEADERS += \
     $$PWD/ArcFaceEngine.h \
+    $$PWD/ImageConverter.h \
     $$PWD/arcfacemanager.h
 
 SOURCES += \
     $$PWD/ArcFaceEngine.cpp \
+    $$PWD/ImageConverter.cpp \
     $$PWD/arcfacemanager.cpp
 
 DISTFILES += \

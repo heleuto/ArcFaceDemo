@@ -21,6 +21,9 @@ class ArcFaceManager : public QObject
 public:
     explicit ArcFaceManager(QObject *parent = nullptr);
     ~ArcFaceManager();
+    MRESULT StaticImageSingleFaceOp(IplImage* image);   //通过图片注册人脸时使用
+
+    MRESULT StaticImageMultiFaceOp(IplImage* image);    //空闲检测人脸时使用
 signals:
 
 private:

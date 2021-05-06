@@ -27,8 +27,12 @@ public:
 	MRESULT InitEngine(ASF_DetectMode mode);	
 	//释放引擎
 	MRESULT UnInitEngine();	
-	//人脸检测
-	MRESULT PreDetectFace(IplImage* image, ASF_SingleFaceInfo& faceRect, bool isRGB);
+    //单张人脸检测
+    MRESULT PreDetectSingleFace(IplImage* image, ASF_SingleFaceInfo& faceRect, bool isRGB);
+
+    //多张人脸检测
+    MRESULT PreDetectMultiFace(IplImage* image, ASF_MultiFaceInfo& faceRect, bool isRGB);
+
 	//人脸特征提取
 	MRESULT PreExtractFeature(IplImage* image, ASF_FaceFeature& feature, ASF_SingleFaceInfo& faceRect);
 	//人脸比对
