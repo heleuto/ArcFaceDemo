@@ -57,7 +57,8 @@ public:
         pushButton->setGeometry(QRect(10, 460, 101, 41));
         label = new QLabel(centralwidget);
         label->setObjectName(QString::fromUtf8("label"));
-        label->setGeometry(QRect(10, 10, 371, 411));
+        label->setGeometry(QRect(10, 10, 401, 431));
+        label->setAlignment(Qt::AlignCenter);
         pushButton_2 = new QPushButton(centralwidget);
         pushButton_2->setObjectName(QString::fromUtf8("pushButton_2"));
         pushButton_2->setGeometry(QRect(130, 460, 101, 41));
@@ -121,8 +122,8 @@ public:
         pushButton_3->setText(QApplication::translate("MainWindow", "\344\272\272\350\204\270\350\257\206\345\210\2531:N", nullptr));
         pushButton_4->setText(QApplication::translate("MainWindow", "\344\272\272\350\204\270\346\263\250\345\206\214", nullptr));
         pushButton_5->setText(QApplication::translate("MainWindow", "\344\272\272\350\204\270\350\257\206\345\210\2531:1", nullptr));
-        pushButton_6->setText(QApplication::translate("MainWindow", "\345\210\240\351\231\244\346\211\200\351\200\211", nullptr));
-        pushButton_7->setText(QApplication::translate("MainWindow", "\346\270\205\347\251\272\346\263\250\345\206\214\344\277\241\346\201\257", nullptr));
+        pushButton_6->setText(QApplication::translate("MainWindow", "\345\210\240\351\231\244\346\211\200\351\200\211\344\272\272\350\204\270", nullptr));
+        pushButton_7->setText(QApplication::translate("MainWindow", "\346\270\205\347\251\272\344\272\272\350\204\270\344\277\241\346\201\257", nullptr));
         pushButton_8->setText(QApplication::translate("MainWindow", "\345\217\226\346\266\210\346\223\215\344\275\234", nullptr));
         label_3->setText(QApplication::translate("MainWindow", "\344\272\272\345\221\230\344\277\241\346\201\257", nullptr));
     } // retranslateUi

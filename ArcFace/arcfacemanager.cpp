@@ -32,7 +32,7 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
     //初始化时要根据需要设置需要初始化的属性
     MRESULT faceRes = m_imageFaceEngine.ActiveSDK((char*)m_config.appID.toStdString().c_str(),
                              (char*)m_config.sdkKey.toStdString().c_str(),(char*)m_config.activeKey.toStdString().c_str());
-    qDebug() << QString("激活结果: %1").arg(faceRes);
+    qDebug() << QString("激活结果:%1").arg(faceRes);
     //获取激活文件信息
     ASF_ActiveFileInfo activeFileInfo = { 0 };
     m_imageFaceEngine.GetActiveFileInfo(activeFileInfo);
@@ -40,9 +40,9 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
     if (faceRes == MOK)
     {
         faceRes = m_imageFaceEngine.InitEngine(ASF_DETECT_MODE_IMAGE);//Image
-        qDebug() << QString("IMAGE模式下初始化结果: %1").arg(faceRes);
+        qDebug() << QString("IMAGE模式下初始化结果:%1").arg(faceRes);
         faceRes = m_videoFaceEngine.InitEngine(ASF_DETECT_MODE_VIDEO);//Video
-        qDebug() << QString("VIDEO模式下初始化结果: %1").arg(faceRes);
+        qDebug() << QString("VIDEO模式下初始化结果:%1").arg(faceRes);
     }
 
     m_curStaticImageFeature.featureSize = FACE_FEATURE_SIZE;
@@ -111,7 +111,7 @@ MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image)
 //Bug:图片压缩后,部分边框不显示...
 MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image)
 {
-    ASF_MultiFaceInfo detectedFaces = { 0 };//人脸检测
+    ASF_MultiFaceInfo detectedFaces = { 0 };        //人脸检测
     MRESULT detectRes = m_imageFaceEngine.PreDetectMultiFace(image, detectedFaces, true);
     if (MOK == detectRes)
     {
@@ -160,6 +160,47 @@ MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image)
     }
 
     return detectRes;
+}
+
+MRESULT ArcFaceManager::AddFaceFeature(int id,ASF_FaceFeature *feature)
+{
+    MRESULT faceRes = MOK;
+
+    {
+        QMutexLocker locker(&m_mutex);
+        //删除旧数据
+        if(m_faceFeatures.contains(id)){
+            ASF_FaceFeature *mFeature = m_faceFeatures.take(id);
+            delete mFeature;
+        }
+
+        m_faceFeatures.insert(id,feature);
+    }
+
+    return faceRes;
+}
+
+MRESULT ArcFaceManager::RemoveFaceFeature(int id, ASF_FaceFeature *feature)
+{
+    Q_UNUSED(feature);
+    MRESULT faceRes = MOK;
+    {
+        QMutexLocker locker(&m_mutex);
+        if(m_faceFeatures.remove(id) == 0)             faceRes = -1;    //未能从映射表中找到此特征
+    }
+
+    return faceRes;
+}
+
+MRESULT ArcFaceManager::ClearFaceFeatures()
+{
+    {
+        QMutexLocker locker(&m_mutex);
+        qDeleteAll(m_faceFeatures);
+        m_faceFeatures.clear();
+    }
+
+    return MOK;
 }
 
 void ArcFaceManager::ReadSetting()
