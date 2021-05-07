@@ -10,6 +10,8 @@
 
 #define FACE_FEATURE_SIZE 1032
 
+#define SafeFree(x) { if(x != NULL){ free(x); x = NULL;} }
+
 QMutex m_mutex;
 ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 {    
@@ -31,7 +33,7 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 
     //初始化时要根据需要设置需要初始化的属性
     MRESULT faceRes = m_imageFaceEngine.ActiveSDK((char*)m_config.appID.toStdString().c_str(),
-                             (char*)m_config.sdkKey.toStdString().c_str(),(char*)m_config.activeKey.toStdString().c_str());
+                                                  (char*)m_config.sdkKey.toStdString().c_str(),(char*)m_config.activeKey.toStdString().c_str());
     qDebug() << QString("激活结果:%1").arg(faceRes);
     //获取激活文件信息
     ASF_ActiveFileInfo activeFileInfo = { 0 };
@@ -45,8 +47,9 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
         qDebug() << QString("VIDEO模式下初始化结果:%1").arg(faceRes);
     }
 
-    m_curStaticImageFeature.featureSize = FACE_FEATURE_SIZE;
-    m_curStaticImageFeature.feature = (MByte *)malloc(m_curStaticImageFeature.featureSize * sizeof(MByte));
+    curFaceFeatureInit();
+    //m_curStaticImageFeature.featureSize = FACE_FEATURE_SIZE;
+    //m_curStaticImageFeature.feature = (MByte *)malloc(m_curStaticImageFeature.featureSize * sizeof(MByte));
 }
 
 ArcFaceManager::~ArcFaceManager()
@@ -54,27 +57,22 @@ ArcFaceManager::~ArcFaceManager()
     //应用程序关闭时,必须销毁引擎,否则会造成内存泄漏。
     m_imageFaceEngine.UnInitEngine();
     m_videoFaceEngine.UnInitEngine();
+    freeCurFaceFeature();
+    ClearFaceFeatures();
+    SafeFree(m_curStaticImage);
 }
 
 //返回单人脸带边框的图片
-MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image)
+MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image,bool  m_takeFeature)
 {
+    //
+    freeCurFaceFeature();
     //FD
     ASF_SingleFaceInfo faceInfo = { 0 };
     MRESULT detectRes = m_imageFaceEngine.PreDetectSingleFace(image, faceInfo, true);
 
     if (MOK == detectRes)
     {
-        {
-            //QMutexLocker locker(&m_mutex);
-            cv::Mat img(image);
-            cv::rectangle(img,cvPoint(faceInfo.faceRect.left,faceInfo.faceRect.bottom),
-                          cvPoint(faceInfo.faceRect.right,faceInfo.faceRect.top),CV_RGB(255, 0, 0),5);
-            IplImage m_Image(img);
-            image = &m_Image;
-        }
-
-
         //age gender
         ASF_MultiFaceInfo multiFaceInfo = { 0 };
         multiFaceInfo.faceOrient = (MInt32*)malloc(sizeof(MInt32));
@@ -91,17 +89,32 @@ MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image)
 
         //age 、gender 、3d angle 信息
         detectRes = m_imageFaceEngine.FaceASFProcess(multiFaceInfo, image,
-            ageInfo, genderInfo, angleInfo, liveNessInfo);
+                                                     ageInfo, genderInfo, angleInfo, liveNessInfo);
 
         if (MOK == detectRes)
         {
             qDebug()<< QString("年龄:%1,性别:%2,活体:%3").arg(ageInfo.ageArray[0]
-                        ).arg(genderInfo.genderArray[0] == 0 ? "男" : "女"
+                       ).arg(genderInfo.genderArray[0] == 0 ? "男" : "女"
                         ).arg(liveNessInfo.isLive[0] == 1 ? "是" : "否");
         }
 
         free(multiFaceInfo.faceRect);
         free(multiFaceInfo.faceOrient);
+
+        //获取特征
+        if(m_takeFeature){
+            curFaceFeatureInit();
+            detectRes = m_imageFaceEngine.PreExtractFeature(image, *currentFaceFeature/*m_curStaticImageFeature*/, faceInfo);
+        }
+
+        {
+            //QMutexLocker locker(&m_mutex);
+            cv::Mat img(image);
+            cv::rectangle(img,cvPoint(faceInfo.faceRect.left,faceInfo.faceRect.bottom),
+                          cvPoint(faceInfo.faceRect.right,faceInfo.faceRect.top),CV_RGB(255, 0, 0),5);
+            IplImage m_Image(img);
+            image = &m_Image;
+        }
     }
 
     return detectRes;
@@ -109,12 +122,54 @@ MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image)
 
 //返回多人脸带边框的图片
 //Bug:图片压缩后,部分边框不显示...
-MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image)
+MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image,bool  m_takeFeature)
 {
+    //
+    freeCurFaceFeature();
     ASF_MultiFaceInfo detectedFaces = { 0 };        //人脸检测
     MRESULT detectRes = m_imageFaceEngine.PreDetectMultiFace(image, detectedFaces, true);
-    if (MOK == detectRes)
+    if (MOK == detectRes )
     {
+        ASF_AgeInfo ageInfo = { 0 };
+        ASF_GenderInfo genderInfo = { 0 };
+        ASF_Face3DAngle angleInfo = { 0 };
+        ASF_LivenessInfo liveNessInfo = { 0 };
+
+        //age 、gender 、3d angle 信息
+        MRESULT other_detectRes = m_imageFaceEngine.FaceASFProcess(detectedFaces, image,
+                                                                   ageInfo, genderInfo, angleInfo, liveNessInfo);
+        if(other_detectRes == MOK){
+            for (int i = 0; i < ageInfo.num; i++){
+                qDebug()<< QString("ID:%1,年龄:%2").arg(i).arg(ageInfo.ageArray[i]);
+            }
+
+            for (int i = 0; i < genderInfo.num; i++)
+            {
+                qDebug()<< QString("ID:%1,性别:%2").arg(i).arg(genderInfo.genderArray[i] == 0 ? "男" : "女");
+            }
+            for (int i = 0; i < angleInfo.num; i++){
+                // qDebug()<< QString("ID:%1,3D:%2").arg(i).arg(angleInfo.[i]);
+            }
+
+            for (int i = 0; i < liveNessInfo.num; i++)
+            {
+                qDebug()<< QString("ID:%1,活体:%2").arg(i).arg(liveNessInfo.isLive[i] == 1 ? "是" :"否");
+            }
+        }
+
+        if(m_takeFeature){
+            if(detectedFaces.faceNum > 1 )       detectRes = MERR_ASF_OTHER_FACE_COUNT_ERROR; //人脸数量过多
+            else{
+                ASF_SingleFaceInfo faceInfo = {
+                    detectedFaces.faceRect[0],
+                    detectedFaces.faceOrient[0]
+                };
+
+                curFaceFeatureInit();
+                detectRes = m_imageFaceEngine.PreExtractFeature(image, *currentFaceFeature/*m_curStaticImageFeature*/, faceInfo);
+            }
+        }
+
         for (int i = 0; i < detectedFaces.faceNum; i++)
         {
             //QMutexLocker locker(&m_mutex);
@@ -127,34 +182,6 @@ MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image)
             //faceID用于判断人脸是否有变化
             if(detectedFaces.faceID){
                 qDebug() << QString("人脸id:%1").arg(detectedFaces.faceID[i]);
-            }
-        }
-
-        ASF_AgeInfo ageInfo = { 0 };
-        ASF_GenderInfo genderInfo = { 0 };
-        ASF_Face3DAngle angleInfo = { 0 };
-        ASF_LivenessInfo liveNessInfo = { 0 };
-
-        //age 、gender 、3d angle 信息
-        MRESULT other_detectRes = m_imageFaceEngine.FaceASFProcess(detectedFaces, image,
-            ageInfo, genderInfo, angleInfo, liveNessInfo);
-
-        if(other_detectRes == MOK){
-            for (int i = 0; i < ageInfo.num; i++){
-                qDebug()<< QString("ID:%1,年龄:%2").arg(i).arg(ageInfo.ageArray[i]);
-            }
-
-            for (int i = 0; i < genderInfo.num; i++)
-            {
-                qDebug()<< QString("ID:%1,性别:%2").arg(i).arg(genderInfo.genderArray[i] == 0 ? "男" : "女");
-            }
-            for (int i = 0; i < angleInfo.num; i++){
-               // qDebug()<< QString("ID:%1,3D:%2").arg(i).arg(angleInfo.[i]);
-            }
-
-            for (int i = 0; i < liveNessInfo.num; i++)
-            {
-                qDebug()<< QString("ID:%1,活体:%2").arg(i).arg(liveNessInfo.isLive[i] == 1 ? "是" :"否");
             }
         }
     }
@@ -203,6 +230,11 @@ MRESULT ArcFaceManager::ClearFaceFeatures()
     return MOK;
 }
 
+ASF_FaceFeature *ArcFaceManager::LastFaceFeature()
+{
+    return currentFaceFeature;
+}
+
 void ArcFaceManager::ReadSetting()
 {
     QSettings settings(INI_FILE,QSettings::IniFormat);
@@ -216,4 +248,19 @@ void ArcFaceManager::ReadSetting()
     m_config.rgbCameraId = settings.value("rgbCameraId",1).toInt();
     m_config.irCameraId = settings.value("irCameraId",0).toInt();
     settings.endGroup();
+}
+
+void ArcFaceManager::curFaceFeatureInit()
+{
+    freeCurFaceFeature();
+    currentFaceFeature = new ASF_FaceFeature({(MByte *)malloc(FACE_FEATURE_SIZE * sizeof(MByte)),FACE_FEATURE_SIZE});
+}
+
+void ArcFaceManager::freeCurFaceFeature()
+{
+    if(currentFaceFeature != NULL){
+        free(currentFaceFeature->feature);
+        delete currentFaceFeature;
+        currentFaceFeature = NULL;
+    }
 }

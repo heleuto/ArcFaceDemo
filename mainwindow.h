@@ -7,6 +7,7 @@
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 class QTableView;
+class QPushButton;
 QT_END_NAMESPACE
 
 class MainWindow : public QMainWindow
@@ -16,6 +17,21 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+    enum StepType{
+        ImageType,
+        VideoType,
+        UnknownType = -1
+    };
+
+    enum PurposeFlag{
+        Identify,			//认证 1:1
+        RecognizeLocal,     //识别 1:N
+        RecognizeNet,       //网络识别,此处只发送人脸特征
+        RegisterFace,		//本地注册
+        UnregisterFace,		//删除本地注册信息
+        UnknownRequest = -1,
+    };
 
 private slots:
     void on_pushButton_clicked();
@@ -28,13 +44,20 @@ private slots:
 
     void on_pushButton_7_clicked();
 
+    void on_pushButton_8_clicked();
+
+    void on_pushButton_3_clicked();
+
+    void on_pushButton_5_clicked();
+
 private:
     Ui::MainWindow *ui;
 
     ArcFaceManager _arcFaceManger;
 
+    void ImageOrVideo(StepType m_type = ImageType);
+
     void ImageStep(bool step = true);
-    bool m_imageStep = true;
 
     void VideoStep(bool step= true);
 
@@ -47,5 +70,14 @@ private:
     void clearTableView(QTableView *view);
 
     void initTable();
+
+    StepType m_FaceType = ImageType;
+    void DisableOtherBtns(QPushButton* btn = NULL);
+    QList<QPushButton*> m_btns;
+    PurposeFlag m_flag = UnknownRequest;
+
+    int curUserID = 0;
+
+    void updateLocalFaceFeature();
 };
 #endif // MAINWINDOW_H

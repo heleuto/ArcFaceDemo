@@ -23,6 +23,14 @@ MainWindow::MainWindow(QWidget *parent)
         loadUserInfos();
     }else qDebug() << "数据库加载失败!";
 
+    m_btns << ui->pushButton
+           << ui->pushButton_2
+           << ui->pushButton_3
+           << ui->pushButton_4
+           << ui->pushButton_5
+           << ui->pushButton_6
+           << ui->pushButton_7;
+
 }
 
 MainWindow::~MainWindow()
@@ -50,34 +58,37 @@ void MainWindow::on_pushButton_clicked()
     }
 
     ui->label->clear();
-    if(MOK == _arcFaceManger.StaticImageMultiFaceOp(image)){
+    MRESULT ret = _arcFaceManger.StaticImageMultiFaceOp(image, m_flag == RegisterFace ? true : false);
+    if(MOK == ret){
         ui->textBrowser->append(tr("检测到人脸"));
+        updateLocalFaceFeature();
+    }
+    else if(ret == MERR_ASF_OTHER_FACE_COUNT_ERROR){
+        ui->textBrowser->append(tr("人脸数量过多,请选择正确的图片!"));
     }
     else{
-        ui->textBrowser->append(tr("未检测到人脸"));
+        ui->textBrowser->append(tr("未检测到人脸,请选择正确的图片!"));
     }
+
     ui->label->setPixmap(QPixmap::fromImage(*IplImage2QImage(image)).scaled(ui->label->size(),Qt::KeepAspectRatio)); //内存泄漏?
 
+    //m_flag = UnknownRequest;
 }
 
 //线程打开摄像头
 void MainWindow::on_pushButton_2_clicked()
 {
     if(ui->pushButton_2->text() == "打开摄像头"){
-        VideoStep();
-        ImageStep(false);
+        ImageOrVideo(VideoType);
     }else{
-        VideoStep(false);
-        ImageStep();
+        ImageOrVideo(ImageType);
     }
-
-
 }
 
 void MainWindow::ImageStep(bool step)
 {
-    m_imageStep = step;
-    if(m_imageStep){
+    //m_imageStep = step;
+    if(step/*m_imageStep*/){
         ui->pushButton->setEnabled(true);
         ui->lineEdit->setEnabled(false);
     }else{
@@ -113,8 +124,7 @@ bool MainWindow::loadUserInfos()
     QSqlQuery query;
 
     //不能通过null判断
-    ok = query.exec("select USERID As ID,STAFFID As '工号',NAME As '姓名',"
-                "CASE FACEINFO when LENGTH(FACEINFO) > 0 then '已注册' Else '未注册' END As '人脸信息'  from Manager");
+    ok = query.exec("select USERID,STAFFID,NAME,FACEINFO from Manager ");
 
     if(!ok){
         qDebug() <<QString("加载用户信息失败:%1").arg(query.lastError().text());
@@ -129,10 +139,17 @@ bool MainWindow::loadUserInfos()
 
     while(query.next()){
         QList<QStandardItem*> list;
-        list << new  QStandardItem(query.value("ID").toString())
-             << new  QStandardItem(query.value("工号").toString())
-             << new QStandardItem(query.value("姓名").toString())
-             << new QStandardItem(query.value("人脸信息").toString());
+        list << new  QStandardItem(query.value("USERID").toString())
+             << new  QStandardItem(query.value("STAFFID").toString())
+             << new QStandardItem(query.value("NAME").toString());
+             QByteArray _info = query.value("FACEINFO").toByteArray();
+             if(_info.length() > 0){
+                 QStandardItem *Item = new QStandardItem("已注册");
+                 Item->setForeground(QBrush(QColor(255, 0, 0)));
+                 list << Item ;
+             }else{
+                 list << new QStandardItem("未注册");
+             }
         m->appendRow(list);
     }
     ui->tableView->setModel(m);
@@ -179,12 +196,58 @@ void MainWindow::initTable()
     //ui->tableView->resizeRowsToContents();
 }
 
+void MainWindow::DisableOtherBtns(QPushButton *btn)
+{
+    //默认启用所有按钮
+    if(btn == NULL){
+        foreach(QPushButton *m_btn,m_btns){
+            m_btn->setEnabled(true);
+        }
+    }else{
+        foreach(QPushButton *m_btn,m_btns){
+            if(btn == m_btn)            m_btn->setEnabled(true);
+            else m_btn->setEnabled(false);
+        }
+    }
+}
+
+void MainWindow::updateLocalFaceFeature()
+{
+    if(m_flag == RegisterFace){
+        ASF_FaceFeature *curFaceFeature  =_arcFaceManger.LastFaceFeature();
+        //QByteArray faceData;
+        //faceData.resize(curFaceFeature->featureSize);
+        //memcpy(faceData.data(), curFaceFeature->feature, curFaceFeature->featureSize);
+        QByteArray faceData ((const char*)curFaceFeature->feature,curFaceFeature->featureSize);
+        QSqlQuery query;
+        query.prepare("update `Manager` set FACEINFO=:FACEINFO where USERID=:USERID");
+        query.bindValue(":FACEINFO", faceData, QSql::Binary);
+        query.bindValue(":USERID",curUserID);
+        if(query.exec()){
+            ui->textBrowser->append("人员注册成功!");
+        }else{
+            ui->textBrowser->append("人员注册失败!");
+        }
+        query.clear();
+        loadUserInfos();
+    }
+
+    on_pushButton_8_clicked();
+    //    m_flag = UnknownRequest;
+
+}
+
 void MainWindow::on_pushButton_6_clicked()
 {
     QItemSelectionModel *m = ui->tableView->selectionModel();
     if(m->selectedIndexes().count() < 1){
         QMessageBox box(QMessageBox::Information,tr("提示"),tr("请先选择要删除的人员"));
         box.exec();
+        return;
+    }
+
+    QMessageBox box(QMessageBox::Warning,tr("警告"),tr("此操作将清除当前用户的人脸信息"),QMessageBox::Yes | QMessageBox::No);
+    if(box.exec() == QMessageBox::No){
         return;
     }
 
@@ -215,8 +278,19 @@ void MainWindow::on_pushButton_4_clicked()
         return;
     }
 
+    curUserID/*int id */= m->selectedIndexes().at(0).data().toInt();
+    ui->textBrowser->append(QString("当前注册人员:%1(工号:%2)"
+                                    ).arg(m->selectedIndexes().at(2).data().toString()
+                                          ).arg(m->selectedIndexes().at(1).data().toString()));
+    if(m_FaceType == ImageType){
+        ui->textBrowser->append("请选择识别照");
+        DisableOtherBtns(ui->pushButton);
+    }else if(m_FaceType == VideoType){
+        ui->textBrowser->append("请将头部对准摄像头");
+        DisableOtherBtns(ui->pushButton_2);
+    }
 
-    int id = m->selectedIndexes().at(0).data().toInt();
+    m_flag = RegisterFace;
 }
 
 void MainWindow::on_pushButton_7_clicked()
@@ -232,4 +306,56 @@ void MainWindow::on_pushButton_7_clicked()
             ui->textBrowser->append("清空所有人员的人脸信息失败!");
         }
     }
+    loadUserInfos();
+}
+
+void MainWindow::ImageOrVideo(MainWindow::StepType m_type)
+{
+    m_FaceType = m_type;
+    if(m_FaceType == ImageType){
+        VideoStep(false);
+        ImageStep();
+    }else if(m_FaceType == VideoType){
+        VideoStep();
+        ImageStep(false);
+    }
+}
+
+void MainWindow::on_pushButton_8_clicked()
+{
+    DisableOtherBtns();
+    ui->tableView->clearSelection();
+    ui->textBrowser->append("操作已取消!");
+    m_flag = UnknownRequest;
+    curUserID = 0;
+}
+
+void MainWindow::on_pushButton_3_clicked()
+{
+    if(m_FaceType == ImageType){
+        ui->textBrowser->append("请选择需要对比的照片");
+        DisableOtherBtns(ui->pushButton);
+    }else if(m_FaceType == VideoType){
+        ui->textBrowser->append("请将头部对准摄像头");
+        DisableOtherBtns(ui->pushButton_2);
+    }
+}
+
+void MainWindow::on_pushButton_5_clicked()
+{
+    QItemSelectionModel *m = ui->tableView->selectionModel();
+    if(m->selectedIndexes().count() < 1){
+        QMessageBox box(QMessageBox::Information,tr("提示"),tr("请先选择要对比的人员"));
+        box.exec();
+        return;
+    }
+
+    if(m_FaceType == ImageType){
+        ui->textBrowser->append("请选择需要对比的照片");
+        DisableOtherBtns(ui->pushButton);
+    }else if(m_FaceType == VideoType){
+        ui->textBrowser->append("请将头部对准摄像头");
+        DisableOtherBtns(ui->pushButton_2);
+    }
+
 }
