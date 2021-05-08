@@ -8,8 +8,6 @@
 
 #define INI_FILE  ".\\setting.ini"
 
-#define FACE_FEATURE_SIZE 1032
-
 #define SafeFree(x) { if(x != NULL){ free(x); x = NULL;} }
 
 QMutex m_mutex;
@@ -47,9 +45,8 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
         qDebug() << QString("VIDEO模式下初始化结果:%1").arg(faceRes);
     }
 
-    curFaceFeatureInit();
-    //m_curStaticImageFeature.featureSize = FACE_FEATURE_SIZE;
-    //m_curStaticImageFeature.feature = (MByte *)malloc(m_curStaticImageFeature.featureSize * sizeof(MByte));
+    m_curStaticImageFeature.featureSize = FACE_FEATURE_SIZE;
+    m_curStaticImageFeature.feature = (MByte *)malloc(m_curStaticImageFeature.featureSize * sizeof(MByte));
 }
 
 ArcFaceManager::~ArcFaceManager()
@@ -57,7 +54,6 @@ ArcFaceManager::~ArcFaceManager()
     //应用程序关闭时,必须销毁引擎,否则会造成内存泄漏。
     m_imageFaceEngine.UnInitEngine();
     m_videoFaceEngine.UnInitEngine();
-    freeCurFaceFeature();
     ClearFaceFeatures();
     SafeFree(m_curStaticImage);
 }
@@ -65,8 +61,6 @@ ArcFaceManager::~ArcFaceManager()
 //返回单人脸带边框的图片
 MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image,bool  m_takeFeature)
 {
-    //
-    freeCurFaceFeature();
     //FD
     ASF_SingleFaceInfo faceInfo = { 0 };
     MRESULT detectRes = m_imageFaceEngine.PreDetectSingleFace(image, faceInfo, true);
@@ -103,8 +97,7 @@ MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image,bool  m_takeFeat
 
         //获取特征
         if(m_takeFeature){
-            curFaceFeatureInit();
-            detectRes = m_imageFaceEngine.PreExtractFeature(image, *currentFaceFeature/*m_curStaticImageFeature*/, faceInfo);
+            detectRes = m_imageFaceEngine.PreExtractFeature(image, m_curStaticImageFeature/**currentFaceFeature*/, faceInfo);
         }
 
         {
@@ -124,8 +117,6 @@ MRESULT ArcFaceManager::StaticImageSingleFaceOp(IplImage *image,bool  m_takeFeat
 //Bug:图片压缩后,部分边框不显示...
 MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image,bool  m_takeFeature)
 {
-    //
-    freeCurFaceFeature();
     ASF_MultiFaceInfo detectedFaces = { 0 };        //人脸检测
     MRESULT detectRes = m_imageFaceEngine.PreDetectMultiFace(image, detectedFaces, true);
     if (MOK == detectRes )
@@ -165,8 +156,7 @@ MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image,bool  m_takeFeatu
                     detectedFaces.faceOrient[0]
                 };
 
-                curFaceFeatureInit();
-                detectRes = m_imageFaceEngine.PreExtractFeature(image, *currentFaceFeature/*m_curStaticImageFeature*/, faceInfo);
+                detectRes = m_imageFaceEngine.PreExtractFeature(image, m_curStaticImageFeature, faceInfo);
             }
         }
 
@@ -189,31 +179,33 @@ MRESULT ArcFaceManager::StaticImageMultiFaceOp(IplImage *image,bool  m_takeFeatu
     return detectRes;
 }
 
-MRESULT ArcFaceManager::AddFaceFeature(int id,ASF_FaceFeature *feature)
+MRESULT ArcFaceManager::AddFaceFeature(int id, ASF_FaceFeature feature)
 {
     MRESULT faceRes = MOK;
 
     {
         QMutexLocker locker(&m_mutex);
         //删除旧数据
-        if(m_faceFeatures.contains(id)){
-            ASF_FaceFeature *mFeature = m_faceFeatures.take(id);
-            delete mFeature;
+        if(m_featuresMap.contains(id)){
+            ASF_FaceFeature mFeature = m_featuresMap.take(id);
+            SafeFree(mFeature.feature);
         }
 
-        m_faceFeatures.insert(id,feature);
+        m_featuresMap.insert(id,feature);
     }
 
     return faceRes;
 }
 
-MRESULT ArcFaceManager::RemoveFaceFeature(int id, ASF_FaceFeature *feature)
+MRESULT ArcFaceManager::RemoveFaceFeature(int id)
 {
-    Q_UNUSED(feature);
     MRESULT faceRes = MOK;
     {
         QMutexLocker locker(&m_mutex);
-        if(m_faceFeatures.remove(id) == 0)             faceRes = -1;    //未能从映射表中找到此特征
+        if(m_featuresMap.contains(id)){
+            ASF_FaceFeature mFeature = m_featuresMap.take(id);
+            SafeFree(mFeature.feature);
+        }else faceRes = -1;
     }
 
     return faceRes;
@@ -223,16 +215,40 @@ MRESULT ArcFaceManager::ClearFaceFeatures()
 {
     {
         QMutexLocker locker(&m_mutex);
-        qDeleteAll(m_faceFeatures);
-        m_faceFeatures.clear();
+        foreach(ASF_FaceFeature feature,m_featuresMap){
+            SafeFree(feature.feature);
+        }
+        m_featuresMap.clear();
     }
 
     return MOK;
 }
 
-ASF_FaceFeature *ArcFaceManager::LastFaceFeature()
+ASF_FaceFeature ArcFaceManager::LastFaceFeature()
 {
-    return currentFaceFeature;
+    return m_curStaticImageFeature;
+}
+
+MRESULT ArcFaceManager::FacePairMatching(MFloat &confidenceLevel, ASF_FaceFeature feature1, ASF_FaceFeature feature2, ASF_CompareModel compareModel)
+{
+    return m_imageFaceEngine.FacePairMatching(confidenceLevel,feature1,feature2,compareModel);
+}
+
+MRESULT ArcFaceManager::FaceMultiMathing(MFloat &confidenceLevel, ASF_FaceFeature feature, int& id, ASF_CompareModel compareModel)
+{
+    MRESULT ret = MOK;
+    QMapIterator<int,ASF_FaceFeature> i(m_featuresMap);
+    while (i.hasNext()) {
+        i.next();
+        ASF_FaceFeature feature2 = i.value();
+        ret = m_imageFaceEngine.FacePairMatching(confidenceLevel,feature,feature2,compareModel);
+        if(ret == MOK){
+            id = i.key();
+            break;
+        }
+    }
+
+    return ret;
 }
 
 void ArcFaceManager::ReadSetting()
@@ -248,19 +264,4 @@ void ArcFaceManager::ReadSetting()
     m_config.rgbCameraId = settings.value("rgbCameraId",1).toInt();
     m_config.irCameraId = settings.value("irCameraId",0).toInt();
     settings.endGroup();
-}
-
-void ArcFaceManager::curFaceFeatureInit()
-{
-    freeCurFaceFeature();
-    currentFaceFeature = new ASF_FaceFeature({(MByte *)malloc(FACE_FEATURE_SIZE * sizeof(MByte)),FACE_FEATURE_SIZE});
-}
-
-void ArcFaceManager::freeCurFaceFeature()
-{
-    if(currentFaceFeature != NULL){
-        free(currentFaceFeature->feature);
-        delete currentFaceFeature;
-        currentFaceFeature = NULL;
-    }
 }

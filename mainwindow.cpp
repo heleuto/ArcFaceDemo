@@ -31,6 +31,8 @@ MainWindow::MainWindow(QWidget *parent)
            << ui->pushButton_6
            << ui->pushButton_7;
 
+    m_curDatabaseFeature.featureSize = FACE_FEATURE_SIZE;
+    m_curDatabaseFeature.feature = (MByte *)malloc(m_curDatabaseFeature.featureSize * sizeof(MByte));
 }
 
 MainWindow::~MainWindow()
@@ -58,7 +60,9 @@ void MainWindow::on_pushButton_clicked()
     }
 
     ui->label->clear();
-    MRESULT ret = _arcFaceManger.StaticImageMultiFaceOp(image, m_flag == RegisterFace ? true : false);
+    MRESULT ret = _arcFaceManger.StaticImageMultiFaceOp(image,
+                                                        (m_flag == RegisterFace )|| (m_flag == Identify) ||
+                                                        (m_flag == RecognizeLocal) ? true : false);
     if(MOK == ret){
         ui->textBrowser->append(tr("检测到人脸"));
         updateLocalFaceFeature();
@@ -166,11 +170,31 @@ void MainWindow::loadFeaturesFromDataBase()
     query.exec("select USERID, FACEINFO from Manager where FACEINFO is not null");
     while(query.next()){
         int faceId = query.value("USERID").toInt();
-        QByteArray faceInfo =query.value("USERID").toByteArray();
+        QByteArray faceInfo =query.value("FACEINFO").toByteArray();
 
-        ASF_FaceFeature *feature = new ASF_FaceFeature({(MByte*)faceInfo.data(),faceInfo.length()});
+        ASF_FaceFeature feature;
+        feature.featureSize = faceInfo.length();
+        feature.feature = (MByte *)malloc(feature.featureSize * sizeof(MByte));
+        memset(feature.feature,0,sizeof (feature.featureSize));
+        memcpy(feature.feature,(MByte*)faceInfo.data(),faceInfo.length());
         _arcFaceManger.AddFaceFeature(faceId,feature);
     }
+    query.clear();
+}
+
+void MainWindow::selectFaceFeatureById(int id)
+{
+    memset(m_curDatabaseFeature.feature, 0, m_curDatabaseFeature.featureSize);
+
+    QSqlQuery query;
+    query.prepare("select FACEINFO from Manager where USERID = :USERID");
+    query.bindValue(":USERID",id);
+    query.exec();
+    if(query.next()){
+        QByteArray faceInfo =query.value(0).toByteArray();
+        memcpy(m_curDatabaseFeature.feature, (MByte*)faceInfo.data(), faceInfo.length());
+    }
+
     query.clear();
 }
 
@@ -214,11 +238,9 @@ void MainWindow::DisableOtherBtns(QPushButton *btn)
 void MainWindow::updateLocalFaceFeature()
 {
     if(m_flag == RegisterFace){
-        ASF_FaceFeature *curFaceFeature  =_arcFaceManger.LastFaceFeature();
-        //QByteArray faceData;
-        //faceData.resize(curFaceFeature->featureSize);
-        //memcpy(faceData.data(), curFaceFeature->feature, curFaceFeature->featureSize);
-        QByteArray faceData ((const char*)curFaceFeature->feature,curFaceFeature->featureSize);
+        ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
+        QByteArray faceData ((const char*)curFaceFeature.feature,curFaceFeature.featureSize);
+
         QSqlQuery query;
         query.prepare("update `Manager` set FACEINFO=:FACEINFO where USERID=:USERID");
         query.bindValue(":FACEINFO", faceData, QSql::Binary);
@@ -230,11 +252,30 @@ void MainWindow::updateLocalFaceFeature()
         }
         query.clear();
         loadUserInfos();
+    }else if(m_flag == Identify){
+
+        ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
+
+            MFloat m_confidence;
+            MRESULT ok = _arcFaceManger.FacePairMatching(m_confidence,curFaceFeature,m_curDatabaseFeature);
+            if(ok == MOK){
+                ui->textBrowser->append(QString("对比相识度:%1").arg(m_confidence));
+            }else {
+                ui->textBrowser->append("对比失败!");
+            }
+    }else if(m_flag == RecognizeLocal){ //1:N
+        ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
+        MFloat m_confidence;
+        int id =0;
+        MRESULT ok = _arcFaceManger.FaceMultiMathing(m_confidence,curFaceFeature,id);
+        if(ok == MOK){
+            ui->textBrowser->append(QString("对比相识度:%1,人员ID:%2").arg(m_confidence).arg(id));
+        }else{
+            ui->textBrowser->append("未能从本地数据库中找到相应的人员信息!");
+        }
     }
 
     on_pushButton_8_clicked();
-    //    m_flag = UnknownRequest;
-
 }
 
 void MainWindow::on_pushButton_6_clicked()
@@ -278,7 +319,7 @@ void MainWindow::on_pushButton_4_clicked()
         return;
     }
 
-    curUserID/*int id */= m->selectedIndexes().at(0).data().toInt();
+    curUserID= m->selectedIndexes().at(0).data().toInt();
     ui->textBrowser->append(QString("当前注册人员:%1(工号:%2)"
                                     ).arg(m->selectedIndexes().at(2).data().toString()
                                           ).arg(m->selectedIndexes().at(1).data().toString()));
@@ -325,7 +366,7 @@ void MainWindow::on_pushButton_8_clicked()
 {
     DisableOtherBtns();
     ui->tableView->clearSelection();
-    ui->textBrowser->append("操作已取消!");
+    //ui->textBrowser->append("操作已取消!");
     m_flag = UnknownRequest;
     curUserID = 0;
 }
@@ -339,6 +380,7 @@ void MainWindow::on_pushButton_3_clicked()
         ui->textBrowser->append("请将头部对准摄像头");
         DisableOtherBtns(ui->pushButton_2);
     }
+    m_flag = RecognizeLocal;
 }
 
 void MainWindow::on_pushButton_5_clicked()
@@ -350,6 +392,14 @@ void MainWindow::on_pushButton_5_clicked()
         return;
     }
 
+    if(m->selectedIndexes().at(3).data().toString() == "未注册"){
+        QMessageBox box(QMessageBox::Information,tr("提示"),tr("当前人员未注册,请先注册!"));
+        box.exec();
+        return;
+    }
+
+    selectFaceFeatureById(m->selectedIndexes().at(0).data().toInt());
+
     if(m_FaceType == ImageType){
         ui->textBrowser->append("请选择需要对比的照片");
         DisableOtherBtns(ui->pushButton);
@@ -357,5 +407,5 @@ void MainWindow::on_pushButton_5_clicked()
         ui->textBrowser->append("请将头部对准摄像头");
         DisableOtherBtns(ui->pushButton_2);
     }
-
+    m_flag = Identify;
 }

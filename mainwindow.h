@@ -67,6 +67,8 @@ private:
 
     void loadFeaturesFromDataBase();
 
+    void selectFaceFeatureById(int id);
+
     void clearTableView(QTableView *view);
 
     void initTable();
@@ -79,5 +81,6 @@ private:
     int curUserID = 0;
 
     void updateLocalFaceFeature();
+    ASF_FaceFeature m_curDatabaseFeature;   //当前从数据库获取的人脸特征
 };
 #endif // MAINWINDOW_H
