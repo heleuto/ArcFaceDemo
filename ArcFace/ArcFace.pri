@@ -1,12 +1,16 @@
 HEADERS += \
     $$PWD/ArcFaceEngine.h \
     $$PWD/ImageConverter.h \
-    $$PWD/arcfacemanager.h
+    $$PWD/arcfacemanager.h \
+    $$PWD/camerathread.h \
+    $$PWD/facedetecter.h
 
 SOURCES += \
     $$PWD/ArcFaceEngine.cpp \
     $$PWD/ImageConverter.cpp \
-    $$PWD/arcfacemanager.cpp
+    $$PWD/arcfacemanager.cpp \
+    $$PWD/camerathread.cpp \
+    $$PWD/facedetecter.cpp
 
 DISTFILES += \
     $$PWD/Readme.txt

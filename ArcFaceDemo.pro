@@ -28,3 +28,6 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 include($$PWD/ArcFace/ArcFace.pri)
+
+RESOURCES += \
+    resource.qrc

@@ -33,6 +33,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_curDatabaseFeature.featureSize = FACE_FEATURE_SIZE;
     m_curDatabaseFeature.feature = (MByte *)malloc(m_curDatabaseFeature.featureSize * sizeof(MByte));
+    connect(&_arcFaceManger,&ArcFaceManager::curRgbFrame,this,&MainWindow::rcvRgbFram);
 }
 
 MainWindow::~MainWindow()
@@ -84,15 +85,16 @@ void MainWindow::on_pushButton_2_clicked()
 {
     if(ui->pushButton_2->text() == "打开摄像头"){
         ImageOrVideo(VideoType);
+
     }else{
         ImageOrVideo(ImageType);
+
     }
 }
 
 void MainWindow::ImageStep(bool step)
 {
-    //m_imageStep = step;
-    if(step/*m_imageStep*/){
+    if(step){
         ui->pushButton->setEnabled(true);
         ui->lineEdit->setEnabled(false);
     }else{
@@ -146,14 +148,14 @@ bool MainWindow::loadUserInfos()
         list << new  QStandardItem(query.value("USERID").toString())
              << new  QStandardItem(query.value("STAFFID").toString())
              << new QStandardItem(query.value("NAME").toString());
-             QByteArray _info = query.value("FACEINFO").toByteArray();
-             if(_info.length() > 0){
-                 QStandardItem *Item = new QStandardItem("已注册");
-                 Item->setForeground(QBrush(QColor(255, 0, 0)));
-                 list << Item ;
-             }else{
-                 list << new QStandardItem("未注册");
-             }
+        QByteArray _info = query.value("FACEINFO").toByteArray();
+        if(_info.length() > 0){
+            QStandardItem *Item = new QStandardItem("已注册");
+            Item->setForeground(QBrush(QColor(255, 0, 0)));
+            list << Item ;
+        }else{
+            list << new QStandardItem("未注册");
+        }
         m->appendRow(list);
     }
     ui->tableView->setModel(m);
@@ -256,13 +258,13 @@ void MainWindow::updateLocalFaceFeature()
 
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
 
-            MFloat m_confidence;
-            MRESULT ok = _arcFaceManger.FacePairMatching(m_confidence,curFaceFeature,m_curDatabaseFeature);
-            if(ok == MOK){
-                ui->textBrowser->append(QString("对比相识度:%1").arg(m_confidence));
-            }else {
-                ui->textBrowser->append("对比失败!");
-            }
+        MFloat m_confidence;
+        MRESULT ok = _arcFaceManger.FacePairMatching(m_confidence,curFaceFeature,m_curDatabaseFeature);
+        if(ok == MOK){
+            ui->textBrowser->append(QString("对比相识度:%1").arg(m_confidence));
+        }else {
+            ui->textBrowser->append("对比失败!");
+        }
     }else if(m_flag == RecognizeLocal){ //1:N
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
         MFloat m_confidence;
@@ -408,4 +410,16 @@ void MainWindow::on_pushButton_5_clicked()
         DisableOtherBtns(ui->pushButton_2);
     }
     m_flag = Identify;
+}
+
+void MainWindow::rcvRgbFram(cv::Mat frame)
+{
+    if(m_FaceType == VideoType){
+        QImage img = cvMat2QImage(frame);
+        if(!img.isNull()){
+            ui->label->setPixmap(QPixmap::fromImage(img).scaled(ui->label->width(),ui->label->height(),Qt::KeepAspectRatio));
+            update();
+        }
+
+    }
 }

@@ -5,6 +5,8 @@
 #include <QTextStream>
 #include <QDebug>
 #include <QMutex>
+#include "camerathread.h"
+#include "facedetecter.h"
 
 #define INI_FILE  ".\\setting.ini"
 
@@ -13,6 +15,8 @@
 QMutex m_mutex;
 ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 {    
+    qRegisterMetaType<cv::Mat>("cv::Mat");
+
     if(!QFile::exists(INI_FILE))    //创建默认配置文件
     {
         QFile n_file(INI_FILE);
@@ -29,6 +33,17 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 
     ReadSetting();
 
+    rgbCamera = new CameraThread(0);
+    irCamera = new CameraThread(1);
+
+    m_detecter = new FaceDetecter;
+
+    connect(rgbCamera,&CameraThread::curFrame,m_detecter,&FaceDetecter::recvRgbFrame);
+    connect(irCamera,&CameraThread::curFrame,m_detecter,&FaceDetecter::recvIrFrame);
+
+    connect(rgbCamera,&CameraThread::curFrame,this,&ArcFaceManager::curRgbFrame);
+    connect(irCamera,&CameraThread::curFrame,this,&ArcFaceManager::curIrFrame);
+
     //初始化时要根据需要设置需要初始化的属性
     MRESULT faceRes = m_imageFaceEngine.ActiveSDK((char*)m_config.appID.toStdString().c_str(),
                                                   (char*)m_config.sdkKey.toStdString().c_str(),(char*)m_config.activeKey.toStdString().c_str());
@@ -39,10 +54,14 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 
     if (faceRes == MOK)
     {
+        engineActived = true;               //引擎初始成功
         faceRes = m_imageFaceEngine.InitEngine(ASF_DETECT_MODE_IMAGE);//Image
         qDebug() << QString("IMAGE模式下初始化结果:%1").arg(faceRes);
-        faceRes = m_videoFaceEngine.InitEngine(ASF_DETECT_MODE_VIDEO);//Video
-        qDebug() << QString("VIDEO模式下初始化结果:%1").arg(faceRes);
+
+        rgbCamera->OpenCamera();
+        irCamera->OpenCamera();
+
+        m_detecter->start();
     }
 
     m_curStaticImageFeature.featureSize = FACE_FEATURE_SIZE;
@@ -51,9 +70,11 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 
 ArcFaceManager::~ArcFaceManager()
 {
+    delete m_detecter;
+    delete rgbCamera;
+    delete irCamera;
     //应用程序关闭时,必须销毁引擎,否则会造成内存泄漏。
     m_imageFaceEngine.UnInitEngine();
-    m_videoFaceEngine.UnInitEngine();
     ClearFaceFeatures();
     SafeFree(m_curStaticImage);
 }

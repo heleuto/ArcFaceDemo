@@ -50,6 +50,7 @@ private slots:
 
     void on_pushButton_5_clicked();
 
+    void rcvRgbFram(cv::Mat);
 private:
     Ui::MainWindow *ui;
 

@@ -6,4 +6,6 @@
 
 QImage* IplImage2QImage(IplImage *iplImg);
 
+QImage cvMat2QImage(const cv::Mat& mat);
+
 #endif // IMAGECONVERTER_H
