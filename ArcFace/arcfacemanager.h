@@ -5,8 +5,6 @@
 #include "ArcFaceEngine.h"
 #include <QMap>
 
-#define FACE_FEATURE_SIZE 1032
-
 struct ArcFaceConfig{
     QString tag;
     QString appID;
@@ -14,8 +12,10 @@ struct ArcFaceConfig{
     QString  activeKey;
     double rgbLiveThreshold;
     double irLiveThreshold;
+    double compareThreshold;
     short rgbCameraId;
     short irCameraId;
+    bool dualCamera;
 };
 
 QT_BEGIN_NAMESPACE
@@ -63,6 +63,13 @@ private:
     FaceDetecter *m_detecter = NULL;
 
     bool engineActived = false;
+
+    bool rgbCameraOpened = false;
+    bool irCameraOpened = false;
+
+private slots:
+    void CameraOpened(bool ok);    //用于获取摄像头实时状态
+    void CameraClosed();
 };
 
 #endif // ARCFACEMANAGER_H

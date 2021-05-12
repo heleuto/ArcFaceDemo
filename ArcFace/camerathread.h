@@ -12,6 +12,7 @@ public:
     explicit CameraThread(QObject *parent = nullptr);
     CameraThread(int cameraID,QObject* parent = nullptr);
     bool OpenCamera(int id = -1);   //返回false,需要先关闭摄像头
+    void CloseCamera(int msec = 600);
     ~CameraThread();
     bool m_exitThread = true;      //外部线程判断摄像头是否正常启用
 protected:
@@ -20,6 +21,7 @@ protected:
     bool m_videoOpened = false;
 signals:
     void curFrame(cv::Mat);
+    void cameraOpened(bool);
 };
 
 #endif // CAMERATHREAD_H

@@ -27,13 +27,18 @@ bool CameraThread::OpenCamera(int id)
     return true;
 }
 
-CameraThread::~CameraThread()
+void CameraThread::CloseCamera(int msec)
 {
     if(this->isRunning()){
         this->requestInterruption();
         this->quit();
-        this->wait();
+        this->wait(msec);
     }
+}
+
+CameraThread::~CameraThread()
+{
+    CloseCamera();
 }
 
 void CameraThread::run()
@@ -49,9 +54,11 @@ void CameraThread::run()
     if(!m_videoOpened) qDebug() << QString("open Camera[%1] failed!").arg(m_CameraID) ;
     else qDebug() << QString("open Camera[%1] Successfully!").arg(m_CameraID) ;
 
+    emit cameraOpened(m_videoOpened);
+
     while(m_videoOpened && !isInterruptionRequested() && !m_exitThread){
         capture >> frame;
-        if (frame.empty())    break;
+        if (frame.empty())    continue;
 
         emit curFrame(frame);
 

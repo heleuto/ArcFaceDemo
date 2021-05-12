@@ -10,9 +10,6 @@
 
 #define INI_FILE  ".\\setting.ini"
 
-#define SafeFree(x) { if(x != NULL){ free(x); x = NULL;} }
-
-QMutex m_mutex;
 ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 {    
     qRegisterMetaType<cv::Mat>("cv::Mat");
@@ -33,16 +30,28 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 
     ReadSetting();
 
-    rgbCamera = new CameraThread(0);
-    irCamera = new CameraThread(1);
+    rgbCamera = new CameraThread(m_config.rgbCameraId);
+    rgbCamera->setObjectName("RGB");
+    irCamera = new CameraThread(m_config.irCameraId);
+    irCamera->setObjectName("IR");
 
     m_detecter = new FaceDetecter;
+    m_detecter->setMap(m_featuresMap);
+    m_detecter->setRgbLiveThreshold(m_config.rgbLiveThreshold);
+    m_detecter->setIrLiveThreshold(m_config.irLiveThreshold);
+    m_detecter->setCompareThreshold(m_config.compareThreshold);
 
     connect(rgbCamera,&CameraThread::curFrame,m_detecter,&FaceDetecter::recvRgbFrame);
     connect(irCamera,&CameraThread::curFrame,m_detecter,&FaceDetecter::recvIrFrame);
 
     connect(rgbCamera,&CameraThread::curFrame,this,&ArcFaceManager::curRgbFrame);
     connect(irCamera,&CameraThread::curFrame,this,&ArcFaceManager::curIrFrame);
+
+    connect(rgbCamera,&CameraThread::cameraOpened,this,&ArcFaceManager::CameraOpened);
+    connect(rgbCamera,&CameraThread::finished,this,&ArcFaceManager::CameraClosed);
+
+    connect(irCamera,&CameraThread::cameraOpened,this,&ArcFaceManager::CameraOpened);
+    connect(irCamera,&CameraThread::finished,this,&ArcFaceManager::CameraClosed);
 
     //初始化时要根据需要设置需要初始化的属性
     MRESULT faceRes = m_imageFaceEngine.ActiveSDK((char*)m_config.appID.toStdString().c_str(),
@@ -58,9 +67,15 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
         faceRes = m_imageFaceEngine.InitEngine(ASF_DETECT_MODE_IMAGE);//Image
         qDebug() << QString("IMAGE模式下初始化结果:%1").arg(faceRes);
 
-        rgbCamera->OpenCamera();
-        irCamera->OpenCamera();
+        if(!m_config.dualCamera){
+            rgbCamera->OpenCamera(0);
+        }
+        else {
+            rgbCamera->OpenCamera();
+            irCamera->OpenCamera();
+        }
 
+        m_detecter->setDualCamera(m_config.dualCamera); //设置摄像头单、双目模式
         m_detecter->start();
     }
 
@@ -263,7 +278,7 @@ MRESULT ArcFaceManager::FaceMultiMathing(MFloat &confidenceLevel, ASF_FaceFeatur
         i.next();
         ASF_FaceFeature feature2 = i.value();
         ret = m_imageFaceEngine.FacePairMatching(confidenceLevel,feature,feature2,compareModel);
-        if(ret == MOK){
+        if((ret == MOK )&& (confidenceLevel > 0.0)){
             id = i.key();
             break;
         }
@@ -282,7 +297,33 @@ void ArcFaceManager::ReadSetting()
     m_config.activeKey = settings.value("ACTIVE_KEY","").toString();
     m_config.rgbLiveThreshold = settings.value("rgbLiveThreshold",0.5).toDouble();
     m_config.irLiveThreshold = settings.value("irLiveThreshold",0.7).toDouble();
+    m_config.compareThreshold = settings.value("compareThreshold",0.8).toDouble();
     m_config.rgbCameraId = settings.value("rgbCameraId",1).toInt();
     m_config.irCameraId = settings.value("irCameraId",0).toInt();
+    m_config.dualCamera = (bool)settings.value("dualCamera").toInt();
     settings.endGroup();
+}
+
+void ArcFaceManager::CameraOpened(bool ok)
+{
+    if(sender()->objectName() == "RGB"){
+        rgbCameraOpened = ok;
+    }else if(sender()->objectName() == "IR"){
+        irCameraOpened = ok;
+    }
+
+    if(m_config.dualCamera)    m_detecter->setCameraState(rgbCameraOpened && irCameraOpened);
+    else    m_detecter->setCameraState(rgbCameraOpened);
+}
+
+void ArcFaceManager::CameraClosed()
+{
+    if(sender()->objectName() == "RGB"){
+        rgbCameraOpened = false;
+    }else if(sender()->objectName() == "IR"){
+        irCameraOpened = false;
+    }
+
+    if(m_config.dualCamera) m_detecter->setCameraState(rgbCameraOpened && irCameraOpened);
+    else    m_detecter->setCameraState(rgbCameraOpened);
 }

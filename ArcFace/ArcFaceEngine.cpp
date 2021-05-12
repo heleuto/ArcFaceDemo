@@ -49,7 +49,8 @@ MRESULT ArcFaceEngine::InitEngine(ASF_DetectMode detectMode)
 	}
 	else
 	{
-		mask = ASF_FACE_DETECT | ASF_FACERECOGNITION | ASF_LIVENESS | ASF_IR_LIVENESS;
+        //mask = ASF_FACE_DETECT | ASF_FACERECOGNITION | ASF_LIVENESS | ASF_IR_LIVENESS;
+        mask = ASF_FACE_DETECT | ASF_FACERECOGNITION | ASF_LIVENESS | ASF_IR_LIVENESS | ASF_GENDER; //视频模式增加性别检测
 	}
 
 	MRESULT res = ASFInitEngine(detectMode, ASF_OP_0_ONLY, NSCALE, FACENUM, mask, &m_hEngine);
@@ -101,7 +102,33 @@ MRESULT ArcFaceEngine::FaceASFProcess(ASF_MultiFaceInfo detectedFaces, IplImage 
 	res = ASFGetFace3DAngle(m_hEngine, &angleInfo);
 	res = ASFGetLivenessScore(m_hEngine, &liveNessInfo);
 	cvReleaseImage(&cutImg);
-	return res;
+    return res;
+}
+
+MRESULT ArcFaceEngine::FaceASFProcessVideo(ASF_MultiFaceInfo detectedFaces, IplImage *img, ASF_GenderInfo &genderInfo, ASF_LivenessInfo &liveNessInfo)
+{
+    if (!img)
+    {
+        return -1;
+    }
+
+    MInt32 lastMask =  ASF_GENDER | ASF_LIVENESS;
+    IplImage* cutImg = cvCreateImage(cvSize(img->width - (img->width % 4), img->height), IPL_DEPTH_8U, img->nChannels);
+    PicCutOut(img, cutImg, 0, 0);
+
+    ASVLOFFSCREEN offscreen = { 0 };
+    ColorSpaceConversion(cutImg, ASVL_PAF_RGB24_B8G8R8, offscreen);
+    if (!cutImg)
+    {
+        cvReleaseImage(&cutImg);
+        return -1;
+    }
+
+    int res = ASFProcessEx(m_hEngine, &offscreen, &detectedFaces, lastMask);
+    res = ASFGetGender(m_hEngine, &genderInfo);
+    res = ASFGetLivenessScore(m_hEngine, &liveNessInfo);
+    cvReleaseImage(&cutImg);
+    return res;
 }
 
 MRESULT ArcFaceEngine::FaceASFProcess_IR(ASF_MultiFaceInfo detectedFaces, IplImage *img, ASF_LivenessInfo& irLiveNessInfo)
@@ -268,11 +295,8 @@ MRESULT ArcFaceEngine::PreDetectMultiFace(IplImage *image, ASF_MultiFaceInfo &fa
 
     if (res != MOK || faceRect.faceNum < 1)
     {
-        //cvReleaseImage(&cutImg);
         return -1;
     }
-
-    //cvReleaseImage(&cutImg);
 
     return res;
 }

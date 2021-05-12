@@ -12,6 +12,9 @@
 #include "free/arcsoft_face_sdk.h"
 #endif
 
+#define FACE_FEATURE_SIZE 1032
+
+#define SafeFree(x) { if(x != NULL){ free(x);} x = NULL; }
 
 class ArcFaceEngine
 {
@@ -31,7 +34,7 @@ public:
     MRESULT PreDetectSingleFace(IplImage* image, ASF_SingleFaceInfo& faceRect, bool isRGB);
 
     //多张人脸检测
-    MRESULT PreDetectMultiFace(IplImage* image, ASF_MultiFaceInfo& faceRect, bool isRGB);
+    MRESULT PreDetectMultiFace(IplImage* image, ASF_MultiFaceInfo& faceRect, bool isRGB); //add
 
 	//人脸特征提取
 	MRESULT PreExtractFeature(IplImage* image, ASF_FaceFeature& feature, ASF_SingleFaceInfo& faceRect);
@@ -43,6 +46,11 @@ public:
 	//RGB图像人脸属性检测
 	MRESULT FaceASFProcess(ASF_MultiFaceInfo detectedFaces, IplImage *img, ASF_AgeInfo &ageInfo,
 		ASF_GenderInfo &genderInfo, ASF_Face3DAngle &angleInfo, ASF_LivenessInfo& liveNessInfo);
+
+    //RGB图像人脸属性检测,Video
+    MRESULT FaceASFProcessVideo(ASF_MultiFaceInfo detectedFaces, IplImage *img,
+        ASF_GenderInfo &genderInfo, ASF_LivenessInfo& liveNessInfo);
+
 	//IR活体检测
 	MRESULT FaceASFProcess_IR(ASF_MultiFaceInfo detectedFaces, IplImage *img, ASF_LivenessInfo& irLiveNessInfo);
 	//获取版本信息
