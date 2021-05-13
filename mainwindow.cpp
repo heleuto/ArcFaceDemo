@@ -9,6 +9,7 @@
 #include <QStandardItemModel>
 #include <QSqlError>
 #include <QMessageBox>
+#include "ArcFace/ccommon.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -62,8 +63,8 @@ void MainWindow::on_pushButton_clicked()
 
     ui->label->clear();
     MRESULT ret = _arcFaceManger.StaticImageMultiFaceOp(image,
-                                                        (m_flag == RegisterFace )|| (m_flag == Identify) ||
-                                                        (m_flag == RecognizeLocal) ? true : false);
+                                                        (m_flag == SignUpByFace/*RegisterFace*/ )|| (m_flag == PairMatch/*Identify*/) ||
+                                                        (m_flag == OneMatchMany/*RecognizeLocal*/) ? true : false);
     if(MOK == ret){
         ui->textBrowser->append(tr("检测到人脸"));
         updateLocalFaceFeature();
@@ -85,10 +86,10 @@ void MainWindow::on_pushButton_2_clicked()
 {
     if(ui->pushButton_2->text() == "打开摄像头"){
         ImageOrVideo(VideoType);
-
+        _arcFaceManger.OpenCameras();
     }else{
         ImageOrVideo(ImageType);
-
+        _arcFaceManger.CloseCameras();
     }
 }
 
@@ -239,7 +240,7 @@ void MainWindow::DisableOtherBtns(QPushButton *btn)
 
 void MainWindow::updateLocalFaceFeature()
 {
-    if(m_flag == RegisterFace){
+    if(m_flag == SignUpByFace/*RegisterFace*/){
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
         QByteArray faceData ((const char*)curFaceFeature.feature,curFaceFeature.featureSize);
 
@@ -254,7 +255,7 @@ void MainWindow::updateLocalFaceFeature()
         }
         query.clear();
         loadUserInfos();
-    }else if(m_flag == Identify){
+    }else if(m_flag == PairMatch/*Identify*/){
 
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
 
@@ -265,7 +266,7 @@ void MainWindow::updateLocalFaceFeature()
         }else {
             ui->textBrowser->append("对比失败!");
         }
-    }else if(m_flag == RecognizeLocal){ //1:N
+    }else if(m_flag == OneMatchMany/*RecognizeLocal*/){ //1:N
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
         MFloat m_confidence;
         int id =0;
@@ -333,7 +334,7 @@ void MainWindow::on_pushButton_4_clicked()
         DisableOtherBtns(ui->pushButton_2);
     }
 
-    m_flag = RegisterFace;
+    m_flag = SignUpByFace/*RegisterFace*/;
 }
 
 void MainWindow::on_pushButton_7_clicked()
@@ -369,8 +370,9 @@ void MainWindow::on_pushButton_8_clicked()
     DisableOtherBtns();
     ui->tableView->clearSelection();
     //ui->textBrowser->append("操作已取消!");
-    m_flag = UnknownRequest;
+    m_flag = DoNothing/*UnknownRequest*/;
     curUserID = 0;
+    MRESULT m_result = _arcFaceManger.DetecterControler(UserFaceInformation{DoNothing});
 }
 
 void MainWindow::on_pushButton_3_clicked()
@@ -379,10 +381,24 @@ void MainWindow::on_pushButton_3_clicked()
         ui->textBrowser->append("请选择需要对比的照片");
         DisableOtherBtns(ui->pushButton);
     }else if(m_FaceType == VideoType){
-        ui->textBrowser->append("请将头部对准摄像头");
-        DisableOtherBtns(ui->pushButton_2);
+
+        MRESULT m_result = _arcFaceManger.DetecterControler(UserFaceInformation{OneMatchMany});
+
+        if( m_result == MOK){
+            ui->textBrowser->append("请将头部对准摄像头");
+            DisableOtherBtns(ui->pushButton_2);
+        }else if(m_result == -1){
+            ui->textBrowser->append("识别线程未初始化");
+        }else if(m_result == -2){
+            ui->textBrowser->append("识别线程未启动");
+        }else if(m_result == -3){
+            ui->textBrowser->append("摄像头未就绪或者未打开,需要先开启摄像头");
+        }else{
+            ui->textBrowser->append("对比线程正忙");
+        }
+
     }
-    m_flag = RecognizeLocal;
+    m_flag = OneMatchMany/*RecognizeLocal*/;
 }
 
 void MainWindow::on_pushButton_5_clicked()
@@ -409,7 +425,7 @@ void MainWindow::on_pushButton_5_clicked()
         ui->textBrowser->append("请将头部对准摄像头");
         DisableOtherBtns(ui->pushButton_2);
     }
-    m_flag = Identify;
+    m_flag = PairMatch/*Identify*/;
 }
 
 void MainWindow::rcvRgbFram(cv::Mat frame)

@@ -12,10 +12,6 @@
 #include "free/arcsoft_face_sdk.h"
 #endif
 
-#define FACE_FEATURE_SIZE 1032
-
-#define SafeFree(x) { if(x != NULL){ free(x);} x = NULL; }
-
 class ArcFaceEngine
 {
 public:

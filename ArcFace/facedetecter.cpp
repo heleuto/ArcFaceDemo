@@ -2,15 +2,13 @@
 
 #include "facedetecter.h"
 #include <QDebug>
-#include "ArcFaceEngine.h"
+#include "ccommon.h"
 
 static QMutex rgbMutex,irMutex;
 
 QMutex m_mutex;
 
-#define FreeIplImage(x) { if(x != NULL){ cvReleaseImage(&x);} x = NULL; }
-
-FaceDetecter::FaceDetecter(QObject *parent):QThread(parent)
+FaceDetecter::FaceDetecter(QObject *parent):QThread(parent),curFlag(DoNothing)
 {
 
 }
@@ -35,6 +33,17 @@ void FaceDetecter::setMap(QMap<int, ASF_FaceFeature> &m_map)
     m_featuresMap = &m_map;
 }
 
+ASF_Flag FaceDetecter::DetecterSate()
+{
+    return curFlag;
+}
+
+void FaceDetecter::Controler(UserFaceInformation info)
+{
+    QMutexLocker locker(&m_mutex);
+    curUserInfo = info;
+}
+
 void FaceDetecter::clearImages()
 {
     {
@@ -56,11 +65,13 @@ void FaceDetecter::clearImages()
 
 void FaceDetecter::run()
 {
+    m_exitThread = false;
     ArcFaceEngine m_videoFaceEngine;
     MRESULT faceRes = m_videoFaceEngine.InitEngine(ASF_DETECT_MODE_VIDEO);//Video
     qDebug() << QString("VIDEO模式下初始化结果:%1").arg(faceRes);
     if(faceRes != MOK){
         m_videoFaceEngine.UnInitEngine();
+        m_exitThread = true;
         return;
     }
 
@@ -68,7 +79,6 @@ void FaceDetecter::run()
     qDebug() << QString("设置活体阈值:%1").arg(faceRes == MOK ? "成功" : "失败");
 
     qDebug() << "Face detecter ready";
-    m_exitThread = false;
 
     clock_t start, count = 0;
 
@@ -78,12 +88,11 @@ void FaceDetecter::run()
     faceFeature.feature = (MByte *)malloc(faceFeature.featureSize * sizeof(MByte));
 
     ASF_MultiFaceInfo rgbFaceInfos = { 0 };
-    rgbFaceInfos.faceOrient = (MInt32*)malloc(sizeof(MInt32));
-    rgbFaceInfos.faceRect = (MRECT*)malloc(sizeof(MRECT));
-
     ASF_MultiFaceInfo irFaceInfos = { 0 };
-    irFaceInfos.faceOrient = (MInt32*)malloc(sizeof(MInt32));
-    irFaceInfos.faceRect = (MRECT*)malloc(sizeof(MRECT));
+
+    bool m_loadFeatures = false;    //是否需要载入特征库
+
+    QMap<int,ASF_FaceFeature> curFeatureMap;
 
     while(!isInterruptionRequested() && !m_exitThread ){
 
@@ -94,6 +103,35 @@ void FaceDetecter::run()
             continue;
         }
 
+        UserFaceInformation _userInfo;
+        {
+            QMutexLocker locker(&m_mutex);
+            _userInfo = curUserInfo;
+        }
+
+        curFlag = _userInfo._asfFlag;
+
+        //qDebug() << "Wait for user's signal";
+
+        if(curFlag == DoNothing) continue;
+
+        //载入最新的特征库,如果人脸特征库为空，只能进行注册不能对比
+
+        if(!m_loadFeatures)
+        {
+            QMutexLocker locker(&m_mutex);
+            if(m_featuresMap != NULL)            curFeatureMap = *m_featuresMap;
+            m_loadFeatures = true;
+        }
+
+        if( curFeatureMap.size() == 0 &&  curFlag != SignUpByFace){
+            m_loadFeatures = false;             //下次操作时重新载入特征库
+            curFlag = DoNothing;
+            //emit ;发送信号告诉调用者错误原因
+            continue;
+        }
+
+        //识别人脸并提取特征
         IplImage *rgbImage = NULL;
         IplImage *irImage = NULL;
 
@@ -148,20 +186,6 @@ void FaceDetecter::run()
                             //qDebug() << QString("unknown IR live:%1").arg(liveNessInfo.isLive[0]) ;
                         }
                     }
-//                    else
-//                    {
-                            //qDebug() << QString("IR FaceASFProcess:%1").arg(detectRes);
-//                    }
-
-//                    qDebug() << QString("IR face count:%1").arg(irFaceInfos.faceNum);
-//                    QStringList m_strList;
-//                    if(irFaceInfos.faceNum > 0){
-//                        for(int i = 0 ;i < irFaceInfos.faceNum ;i++){
-//                            m_strList << QString::number( irFaceInfos.faceID[i]);
-//                        }
-//                        qDebug() <<"IR Face IDs:" << m_strList;
-//                    }
-
                 }else{
                     qDebug() << QString("IR PreDetectMultiFace result :%1").arg(detectRes);
                 }
@@ -207,18 +231,6 @@ void FaceDetecter::run()
                         //qDebug() << QString("unknown rgb live:%1").arg(liveNessInfo.isLive[0]) ;
                     }
                 }
-                /*else{
-                    qDebug() << QString("rgb FaceASFProcess:%1").arg(detectRes);
-                }*/
-
-//                qDebug() << QString("RGB face count:%1").arg(rgbFaceInfos.faceNum);
-//                QStringList m_strList;
-//                if(rgbFaceInfos.faceNum > 0){
-//                    for(int i = 0 ;i < rgbFaceInfos.faceNum ;i++){
-//                        m_strList << QString::number( rgbFaceInfos.faceID[i]);
-//                    }
-//                    qDebug() <<"RGB Face IDs:" << m_strList;
-//                }
             }else{
                 qDebug() << QString("RGB PreDetectMultiFace result :%1").arg(detectRes);
             }
@@ -235,6 +247,34 @@ void FaceDetecter::run()
             continue;
         }
 
+        //注册或者对比前提取特征
+
+        switch (curFlag) {
+        case OneMatchMany:  //1:N
+        case SignUpByFace:  //人脸注册,注册前先检索是否有冲突的人脸
+
+
+            break;
+        case PairMatch:     //1:1
+
+
+            break;
+        case DoNothing:
+            break;
+        default:
+            break;
+        }
+
+        m_loadFeatures = false;     //对比或者注册完成后,下次操作需要重新载入特征库
+
+        //操作完成后,进入等待状态
+        {
+            QMutexLocker locker(&m_mutex);
+            curUserInfo = UserFaceInformation();    //清空当前用户信息
+        }
+
+
+        //BEGIN IF
         if(m_featuresMap != NULL){
         //if((rgbFaceInfos.faceNum == 1)  && (m_featuresMap != NULL) && (irFaceInfos.faceNum == 1) ){
 
@@ -284,6 +324,7 @@ void FaceDetecter::run()
 
                 start = clock();
 
+                //1:N
                 QMapIterator<int,ASF_FaceFeature> i(tmp_map);
                 while (i.hasNext()) {
                     i.next();
@@ -313,7 +354,6 @@ void FaceDetecter::run()
                 {
                     qDebug() << QString("RGB活体,level:%2").arg(maxThreshold);
                 }
-
             }
             else{
                 FreeIplImage(rgbImage);
@@ -323,14 +363,9 @@ void FaceDetecter::run()
             FreeIplImage(rgbImage);
             msleep(500);
             continue;
-        }
+        }//End if
+
     }
-
-        //SafeFree(rgbFaceInfos.faceRect);
-   // SafeFree(rgbFaceInfos.faceOrient);
-
-        //SafeFree(irFaceInfos.faceRect);
-    //SafeFree(irFaceInfos.faceOrient);
 
     SafeFree(faceFeature.feature);
 

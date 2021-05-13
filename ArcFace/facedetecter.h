@@ -6,6 +6,7 @@
 #include <QMap>
 #include "ArcFaceEngine.h"
 #include <QMutex>
+#include "ccommon.h"
 
 extern QMutex m_mutex;
 
@@ -33,6 +34,16 @@ public:
     void setCompareThreshold(float val){
         g_compareThreshold = val;
     }
+
+    bool cameraState(){
+        return cameraOpened;
+    }
+
+    ASF_Flag DetecterSate();
+
+    //ADD
+    void Controler(UserFaceInformation info);
+
 private:   
     IplImage* m_curRgbVideoImage = NULL;   //rgb摄像头、ir摄像头当前帧
     IplImage* m_curIrVideoImage = NULL;
@@ -45,6 +56,9 @@ private:
     float g_rgbLiveThreshold = 0.0;
     float g_irLiveThreshold = 0.0;
     float g_compareThreshold = 0.8;
+
+    UserFaceInformation curUserInfo;
+    ASF_Flag curFlag;
 protected:
     void run() override;
 public slots:

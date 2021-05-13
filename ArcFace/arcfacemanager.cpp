@@ -7,6 +7,7 @@
 #include <QMutex>
 #include "camerathread.h"
 #include "facedetecter.h"
+#include "ccommon.h"
 
 #define INI_FILE  ".\\setting.ini"
 
@@ -67,13 +68,7 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
         faceRes = m_imageFaceEngine.InitEngine(ASF_DETECT_MODE_IMAGE);//Image
         qDebug() << QString("IMAGE模式下初始化结果:%1").arg(faceRes);
 
-        if(!m_config.dualCamera){
-            rgbCamera->OpenCamera(0);
-        }
-        else {
-            rgbCamera->OpenCamera();
-            irCamera->OpenCamera();
-        }
+        //OpenCameras();
 
         m_detecter->setDualCamera(m_config.dualCamera); //设置摄像头单、双目模式
         m_detecter->start();
@@ -92,6 +87,32 @@ ArcFaceManager::~ArcFaceManager()
     m_imageFaceEngine.UnInitEngine();
     ClearFaceFeatures();
     SafeFree(m_curStaticImage);
+}
+
+bool ArcFaceManager::OpenCameras()
+{
+    bool ok = false;
+    if(!m_config.dualCamera){
+        ok = rgbCamera->OpenCamera(0);
+    }
+    else {
+        bool rgbOk,irOk;
+        rgbOk = rgbCamera->OpenCamera();
+        irOk = irCamera->OpenCamera();
+        ok = rgbOk && irOk;
+    }
+    return ok;
+}
+
+void ArcFaceManager::CloseCameras()
+{
+    if(!m_config.dualCamera){
+        rgbCamera->CloseCamera();
+    }
+    else {
+        rgbCamera->CloseCamera();
+        irCamera->CloseCamera();
+    }
 }
 
 //返回单人脸带边框的图片
@@ -285,6 +306,20 @@ MRESULT ArcFaceManager::FaceMultiMathing(MFloat &confidenceLevel, ASF_FaceFeatur
     }
 
     return ret;
+}
+
+MRESULT ArcFaceManager::DetecterControler(UserFaceInformation info)
+{
+    if(!m_detecter)     return -1;                  //识别线程未初始化
+    if(m_detecter->m_exitThread)    return -2;      //识别线程未启动
+
+    if(!m_detecter->cameraState())  return -3;      //摄像头未就绪或者未打开,需要先开启摄像头
+
+    if(m_detecter->DetecterSate() != DoNothing && info._asfFlag != DoNothing) return -4;      //对比线程正忙,需要先停止对比
+
+    m_detecter->Controler(info);
+
+    return 0;
 }
 
 void ArcFaceManager::ReadSetting()

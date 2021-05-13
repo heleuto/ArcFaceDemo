@@ -4,6 +4,7 @@
 #include <QObject>
 #include "ArcFaceEngine.h"
 #include <QMap>
+#include "ccommon.h"
 
 struct ArcFaceConfig{
     QString tag;
@@ -30,6 +31,10 @@ public:
     explicit ArcFaceManager(QObject *parent = nullptr);
     ~ArcFaceManager();
 
+    bool OpenCameras();
+
+    void CloseCameras();
+
     //可选参数m_takeFeature:是否提取特征点
     MRESULT StaticImageSingleFaceOp(IplImage* image , bool  m_takeFeature = false);   //通过图片注册人脸时使用
 
@@ -44,6 +49,10 @@ public:
         ASF_CompareModel compareModel = ASF_LIFE_PHOTO);
     //返回ID和匹配值
     MRESULT FaceMultiMathing(MFloat &confidenceLevel,ASF_FaceFeature feature, int& id, ASF_CompareModel compareModel = ASF_LIFE_PHOTO);
+
+    //人脸对比,注册
+    MRESULT DetecterControler(UserFaceInformation info);
+
 signals:
     void curRgbFrame(cv::Mat);
     void curIrFrame(cv::Mat);

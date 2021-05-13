@@ -3,6 +3,7 @@ HEADERS += \
     $$PWD/ImageConverter.h \
     $$PWD/arcfacemanager.h \
     $$PWD/camerathread.h \
+    $$PWD/ccommon.h \
     $$PWD/facedetecter.h
 
 SOURCES += \

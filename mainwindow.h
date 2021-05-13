@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "ArcFace/arcfacemanager.h"
+#include "ArcFace/ccommon.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -24,14 +25,14 @@ public:
         UnknownType = -1
     };
 
-    enum PurposeFlag{
-        Identify,			//认证 1:1
-        RecognizeLocal,     //识别 1:N
-        RecognizeNet,       //网络识别,此处只发送人脸特征
-        RegisterFace,		//本地注册
-        UnregisterFace,		//删除本地注册信息
-        UnknownRequest = -1,
-    };
+//    enum PurposeFlag{
+//        Identify,			//认证 1:1
+//        RecognizeLocal,     //识别 1:N
+//        RecognizeNet,       //网络识别,此处只发送人脸特征
+//        RegisterFace,		//本地注册
+//        UnregisterFace,		//删除本地注册信息
+//        UnknownRequest = -1,
+//    };
 
 private slots:
     void on_pushButton_clicked();
@@ -77,7 +78,8 @@ private:
     StepType m_FaceType = ImageType;
     void DisableOtherBtns(QPushButton* btn = NULL);
     QList<QPushButton*> m_btns;
-    PurposeFlag m_flag = UnknownRequest;
+    //PurposeFlag m_flag = UnknownRequest;
+    ASF_Flag m_flag;
 
     int curUserID = 0;
 
