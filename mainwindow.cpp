@@ -21,6 +21,7 @@ MainWindow::MainWindow(QWidget *parent)
     ImageStep();
     if(initDatabase()){
         qDebug() << "数据库加载成功!";
+        createDatabase();
         loadUserInfos();
     }else qDebug() << "数据库加载失败!";
 
@@ -35,6 +36,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_curDatabaseFeature.featureSize = FACE_FEATURE_SIZE;
     m_curDatabaseFeature.feature = (MByte *)malloc(m_curDatabaseFeature.featureSize * sizeof(MByte));
     connect(&_arcFaceManger,&ArcFaceManager::curRgbFrame,this,&MainWindow::rcvRgbFram);
+    connect(&_arcFaceManger,&ArcFaceManager::error,this,&MainWindow::errorSlot);
 }
 
 MainWindow::~MainWindow()
@@ -171,7 +173,9 @@ void MainWindow::loadFeaturesFromDataBase()
 {
     QSqlQuery query;
     query.exec("select USERID, FACEINFO from Manager where FACEINFO is not null");
+    int count = 0;
     while(query.next()){
+        count++;
         int faceId = query.value("USERID").toInt();
         QByteArray faceInfo =query.value("FACEINFO").toByteArray();
 
@@ -181,6 +185,9 @@ void MainWindow::loadFeaturesFromDataBase()
         memset(feature.feature,0,sizeof (feature.featureSize));
         memcpy(feature.feature,(MByte*)faceInfo.data(),faceInfo.length());
         _arcFaceManger.AddFaceFeature(faceId,feature);
+    }
+    if(count == 0){
+        _arcFaceManger.ClearFaceFeatures();
     }
     query.clear();
 }
@@ -240,7 +247,7 @@ void MainWindow::DisableOtherBtns(QPushButton *btn)
 
 void MainWindow::updateLocalFaceFeature()
 {
-    if(m_flag == SignUpByFace/*RegisterFace*/){
+    if(m_flag == SignUpByFace){
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
         QByteArray faceData ((const char*)curFaceFeature.feature,curFaceFeature.featureSize);
 
@@ -266,7 +273,7 @@ void MainWindow::updateLocalFaceFeature()
         }else {
             ui->textBrowser->append("对比失败!");
         }
-    }else if(m_flag == OneMatchMany/*RecognizeLocal*/){ //1:N
+    }else if(m_flag == OneMatchMany){ //1:N
         ASF_FaceFeature curFaceFeature  =_arcFaceManger.LastFaceFeature();
         MFloat m_confidence;
         int id =0;
@@ -279,6 +286,29 @@ void MainWindow::updateLocalFaceFeature()
     }
 
     on_pushButton_8_clicked();
+}
+
+void MainWindow::createDatabase()
+{
+    QSqlQuery query;
+    query.exec("CREATE TABLE if not exists Manager ("
+                "USERID INTEGER, STAFFID TEXT NOT NULL,"
+                "NAME   TEXT, GENDER TEXT,CARDID  TEXT,    "
+                "DIVISION TEXT,JOB TEXT,PERMISSION   TEXT,"
+                "SIZE  TEXT,SHOE_SIZE  TEXT,PASSWORD  TEXT,    "
+                "TEMPL_FR  BLOB,TS_FR INTEGER DEFAULT 0,    "
+                "TS_FRS  INTEGER DEFAULT 0, FINGER_VAL0  BLOB, "
+                "FINGER_VAL1  BLOB, FINGER_VAL2  BLOB,"
+                "BOX_NUM_USED TEXT, FACEINDEX    INTEGER,    "
+                "FACEINFO BLOB,SYNC  INTEGER, STATE  INTEGER,    "
+                "PRIMARY KEY (STAFFID));");
+    query.exec();
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    isClosing = true;
+    QWidget::closeEvent(event);
 }
 
 void MainWindow::on_pushButton_6_clicked()
@@ -330,8 +360,20 @@ void MainWindow::on_pushButton_4_clicked()
         ui->textBrowser->append("请选择识别照");
         DisableOtherBtns(ui->pushButton);
     }else if(m_FaceType == VideoType){
-        ui->textBrowser->append("请将头部对准摄像头");
-        DisableOtherBtns(ui->pushButton_2);
+        MRESULT m_result = _arcFaceManger.DetecterControler(UserFaceInformation{SignUpByFace ,curUserID});
+
+        if( m_result == MOK){
+            ui->textBrowser->append("请将头部对准摄像头");
+            DisableOtherBtns(ui->pushButton_2);
+        }else if(m_result == -1){
+            ui->textBrowser->append("识别线程未初始化");
+        }else if(m_result == -2){
+            ui->textBrowser->append("识别线程未启动");
+        }else if(m_result == -3){
+            ui->textBrowser->append("摄像头未就绪或者未打开,需要先开启摄像头");
+        }else{
+            ui->textBrowser->append("对比线程正忙");
+        }
     }
 
     m_flag = SignUpByFace/*RegisterFace*/;
@@ -416,20 +458,36 @@ void MainWindow::on_pushButton_5_clicked()
         return;
     }
 
-    selectFaceFeatureById(m->selectedIndexes().at(0).data().toInt());
+    curUserID= m->selectedIndexes().at(0).data().toInt();
+    selectFaceFeatureById(curUserID);
 
     if(m_FaceType == ImageType){
         ui->textBrowser->append("请选择需要对比的照片");
         DisableOtherBtns(ui->pushButton);
     }else if(m_FaceType == VideoType){
-        ui->textBrowser->append("请将头部对准摄像头");
-        DisableOtherBtns(ui->pushButton_2);
+
+        MRESULT m_result = _arcFaceManger.DetecterControler(UserFaceInformation{PairMatch,curUserID});
+
+        if( m_result == MOK){
+            ui->textBrowser->append("请将头部对准摄像头");
+            DisableOtherBtns(ui->pushButton_2);
+        }else if(m_result == -1){
+            ui->textBrowser->append("识别线程未初始化");
+        }else if(m_result == -2){
+            ui->textBrowser->append("识别线程未启动");
+        }else if(m_result == -3){
+            ui->textBrowser->append("摄像头未就绪或者未打开,需要先开启摄像头");
+        }else{
+            ui->textBrowser->append("对比线程正忙");
+        }
     }
     m_flag = PairMatch/*Identify*/;
 }
 
 void MainWindow::rcvRgbFram(cv::Mat frame)
 {
+    if(isClosing)   return;
+
     if(m_FaceType == VideoType){
         QImage img = cvMat2QImage(frame);
         if(!img.isNull()){
@@ -438,4 +496,41 @@ void MainWindow::rcvRgbFram(cv::Mat frame)
         }
 
     }
+}
+
+void MainWindow::errorSlot(const UserFaceInformation &info)
+{
+    if(!info.errorStr.isEmpty())    ui->textBrowser->append(info.errorStr);
+
+    ui->textBrowser->append(QString("模式:%1,人员ID:%2,冲突ID:%3,错误码:%4").arg(
+                                info._asfFlag).arg(info.trackID).arg(info.clashId).arg(info.resCode)) ;
+//    qDebug() << info.trackID;
+//    qDebug() << info.clashId;
+//    qDebug() << info._asfFlag;
+//    qDebug() << info.resCode;
+    if(info.resCode == 0 ){
+        if(info._asfFlag == SignUpByFace){
+            ASF_FaceFeature m_feature = _arcFaceManger.SelectVideoFaceFeatureByID(info.trackID);
+            if(m_feature.feature != NULL){
+                QByteArray faceData ((const char*)m_feature.feature,m_feature.featureSize);
+
+                QSqlQuery query;
+                query.prepare("update `Manager` set FACEINFO=:FACEINFO where USERID=:USERID");
+                query.bindValue(":FACEINFO", faceData, QSql::Binary);
+                query.bindValue(":USERID",info.trackID);
+                if(query.exec()){
+                    ui->textBrowser->append("人员注册成功!");
+                }else{
+                    ui->textBrowser->append("人员注册失败!");
+                }
+                query.clear();
+                loadUserInfos();
+            }
+        }
+        else if(info._asfFlag == OneMatchMany){
+
+        }
+    }
+
+    on_pushButton_8_clicked();
 }

@@ -45,6 +45,10 @@ public:
     MRESULT ClearFaceFeatures();
 
     ASF_FaceFeature LastFaceFeature();      //需要先判断提取特征是否成功!
+    ASF_FaceFeature SelectVideoFaceFeatureByID(int id);
+
+    void setCompareThreshold(float val);
+
     MRESULT FacePairMatching(MFloat &confidenceLevel, ASF_FaceFeature feature1, ASF_FaceFeature feature2,
         ASF_CompareModel compareModel = ASF_LIFE_PHOTO);
     //返回ID和匹配值
@@ -53,9 +57,12 @@ public:
     //人脸对比,注册
     MRESULT DetecterControler(UserFaceInformation info);
 
+    ASF_Flag DetecterSate();
 signals:
     void curRgbFrame(cv::Mat);
     void curIrFrame(cv::Mat);
+
+    void error(const UserFaceInformation &info);
 private:
     void ReadSetting(); //载入参数配置
 

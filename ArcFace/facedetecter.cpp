@@ -15,6 +15,7 @@ FaceDetecter::FaceDetecter(QObject *parent):QThread(parent),curFlag(DoNothing)
 
 FaceDetecter::~FaceDetecter()
 {
+    curFlag = DoNothing;
     if(this->isRunning()){
         this->requestInterruption();
         this->quit();
@@ -41,7 +42,10 @@ ASF_Flag FaceDetecter::DetecterSate()
 void FaceDetecter::Controler(UserFaceInformation info)
 {
     QMutexLocker locker(&m_mutex);
-    curUserInfo = info;
+    if(info._asfFlag == DoNothing){
+        m_loadFeatures = false;
+        curUserInfo = UserFaceInformation();    //清空当前用户信息
+    }else    curUserInfo = info;
 }
 
 void FaceDetecter::clearImages()
@@ -49,7 +53,7 @@ void FaceDetecter::clearImages()
     {
         QMutexLocker locker(&rgbMutex);
         if(m_curRgbVideoImage){
-            cvReleaseImage(&m_curRgbVideoImage);            
+            cvReleaseImage(&m_curRgbVideoImage);
         }
         m_curRgbVideoImage = NULL;
     }
@@ -57,10 +61,17 @@ void FaceDetecter::clearImages()
     {
         QMutexLocker locker(&irMutex);
         if(m_curIrVideoImage){
-            cvReleaseImage(&m_curIrVideoImage);            
+            cvReleaseImage(&m_curIrVideoImage);
         }
         m_curIrVideoImage = NULL;
     }
+}
+
+void FaceDetecter::clearUserInfo()
+{
+    QMutexLocker locker(&m_mutex);
+    curUserInfo = UserFaceInformation();    //清空当前用户信息
+    m_loadFeatures = false;
 }
 
 void FaceDetecter::run()
@@ -90,16 +101,16 @@ void FaceDetecter::run()
     ASF_MultiFaceInfo rgbFaceInfos = { 0 };
     ASF_MultiFaceInfo irFaceInfos = { 0 };
 
-    bool m_loadFeatures = false;    //是否需要载入特征库
-
     QMap<int,ASF_FaceFeature> curFeatureMap;
+
+    m_loadFeatures = false;
 
     while(!isInterruptionRequested() && !m_exitThread ){
 
         msleep(500);
 
         if(!cameraOpened){  //等待摄像头就绪
-            qDebug() << "Wait for Camera ready";
+            //qDebug() << "Wait for Camera ready";
             continue;
         }
 
@@ -125,9 +136,9 @@ void FaceDetecter::run()
         }
 
         if( curFeatureMap.size() == 0 &&  curFlag != SignUpByFace){
-            m_loadFeatures = false;             //下次操作时重新载入特征库
-            curFlag = DoNothing;
-            //emit ;发送信号告诉调用者错误原因
+            _userInfo.errorStr = "人脸数据库为空,请先注册人脸!";
+            emit error(_userInfo);//发送信号告诉调用者错误原因
+            clearUserInfo();
             continue;
         }
 
@@ -162,8 +173,8 @@ void FaceDetecter::run()
                 MRESULT detectRes = m_videoFaceEngine.PreDetectMultiFace(irImage, irFaceInfos, true);
 
                 count = clock() - start;
-                std::cout << "IR Detect multi face time: "
-                    << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
+//                std::cout << "IR Detect multi face time: "
+//                    << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
 
                 if(detectRes == MOK){
 
@@ -187,7 +198,7 @@ void FaceDetecter::run()
                         }
                     }
                 }else{
-                    qDebug() << QString("IR PreDetectMultiFace result :%1").arg(detectRes);
+                    //qDebug() << QString("IR PreDetectMultiFace result :%1").arg(detectRes);
                 }
 
                 FreeIplImage(irImage);
@@ -202,8 +213,8 @@ void FaceDetecter::run()
             MRESULT detectRes = m_videoFaceEngine.PreDetectMultiFace(rgbImage, rgbFaceInfos, true);
 
             count = clock() - start;
-            std::cout << "RGB Detect multi face time: "
-                << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
+//            std::cout << "RGB Detect multi face time: "
+//                << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
 
             if(detectRes == MOK){
                 //RGB属性检测
@@ -213,7 +224,7 @@ void FaceDetecter::run()
                 ASF_LivenessInfo liveNessInfo = { 0 };
 
                 MRESULT detectRes = m_videoFaceEngine.FaceASFProcessVideo(rgbFaceInfos, rgbImage,
-                             genderInfo,  liveNessInfo);
+                                                                          genderInfo,  liveNessInfo);
 
                 if (detectRes == 0 && liveNessInfo.num > 0)
                 {
@@ -232,7 +243,7 @@ void FaceDetecter::run()
                     }
                 }
             }else{
-                qDebug() << QString("RGB PreDetectMultiFace result :%1").arg(detectRes);
+                //qDebug() << QString("RGB PreDetectMultiFace result :%1").arg(detectRes);
             }
         }
 
@@ -249,92 +260,120 @@ void FaceDetecter::run()
 
         //注册或者对比前提取特征
 
+        //特征提取
+        start = clock();
+        ASF_SingleFaceInfo m_curFaceInfo  = {rgbFaceInfos.faceRect[0],rgbFaceInfos.faceOrient[0]};
+
+        MRESULT detectRes = m_videoFaceEngine.PreExtractFeature(rgbImage,
+                                                                faceFeature, m_curFaceInfo);
+
+        count = clock() - start;
+
+//        std::cout << "Extract Feature time: "
+//            << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
+
+        FreeIplImage(rgbImage); //???BUG
+
+        if (MOK != detectRes)
+        {
+            continue;
+        }
+
+         //if((rgbFaceInfos.faceNum == 1) && (irFaceInfos.faceNum == 1) ){
+            //}
         switch (curFlag) {
         case OneMatchMany:  //1:N
         case SignUpByFace:  //人脸注册,注册前先检索是否有冲突的人脸
-
-
-            break;
-        case PairMatch:     //1:1
-
-
-            break;
-        case DoNothing:
-            break;
-        default:
-            break;
-        }
-
-        m_loadFeatures = false;     //对比或者注册完成后,下次操作需要重新载入特征库
-
-        //操作完成后,进入等待状态
         {
-            QMutexLocker locker(&m_mutex);
-            curUserInfo = UserFaceInformation();    //清空当前用户信息
-        }
+            MFloat maxThreshold = 0.0;
+            MRESULT ret = MOK;
+            int id = -1;
 
-
-        //BEGIN IF
-        if(m_featuresMap != NULL){
-        //if((rgbFaceInfos.faceNum == 1)  && (m_featuresMap != NULL) && (irFaceInfos.faceNum == 1) ){
-
-            //m_featuresMap如果在对比时被释放某个元素，有崩溃的风险...
-            QMap<int,ASF_FaceFeature> tmp_map;
-
-            {
-                QMutexLocker locker(&m_mutex);
-                tmp_map = *m_featuresMap;
+            start = clock();
+            QMapIterator<int,ASF_FaceFeature> i(curFeatureMap);
+            while (i.hasNext()) {
+                i.next();
+                ASF_FaceFeature feature2 = i.value();
+                MFloat confidenceLevel = 0;
+                ret = m_videoFaceEngine.FacePairMatching(confidenceLevel, faceFeature, feature2);
+                if(ret == MOK && confidenceLevel > maxThreshold){
+                    id = i.key();
+                    maxThreshold = confidenceLevel;
+                    if(maxThreshold > g_compareThreshold)   break;
+                    if(curFlag == DoNothing)    break;
+                }
             }
 
-            if(tmp_map.size() > 0){
-                qDebug() << "Matching";
+            count = clock() - start;
+            std::cout << "FacePair matched time: "
+                << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
 
-                if (!(isRGBAlive && isIRAlive))
-                {
-                    if (isRGBAlive && !isIRAlive)
-                    {
-                        qDebug() << "RGB活体,IR假体";
+            qDebug() << QString("FacePair Threshold:%1").arg(maxThreshold);
+
+            if(curFlag == DoNothing)    break;      //外部结束对比
+
+            //超过阈值则表示对比成功
+
+            if ((g_compareThreshold >= 0) &&
+                    (maxThreshold >= g_compareThreshold))
+            {
+                qDebug() << QString("ID:%1,Level:%2,RGB活体").arg(id).arg(maxThreshold);
+                if(curFlag == OneMatchMany){
+                    _userInfo.errorStr = QString("人员识别成功!ID:%1").arg(id);
+                    _userInfo.resCode = 0;
+                    _userInfo.trackID = id;
+                    emit error(_userInfo);//人员ID
+                }else{
+                    _userInfo.errorStr = QString("已有注册人员,ID为:%1").arg(id);
+                    _userInfo.trackID = id;
+                    _userInfo.clashId = id;
+                    emit error(_userInfo);//人员ID,人员冲突,注册失败
+                }
+            }
+            else if((g_compareThreshold >= 0) && (maxThreshold < g_compareThreshold) ){
+                if(curFlag == SignUpByFace){
+                    if(_userInfo.trackID == -1){
+                        _userInfo.resCode = -1;
+                        _userInfo.errorStr = "人员ID错误,人脸注册失败!";
+                    }else{
+
+                        //注册人员信息
+                        {
+                            QMutexLocker locker(&m_mutex);
+                            if(m_featuresMap != NULL){
+                                m_featuresMap->insert(_userInfo.trackID,faceFeature);
+                            }
+                        }
+                        _userInfo.errorStr =QString("人脸注册成功!ID:%1").arg(_userInfo.trackID) ;
+                        _userInfo.resCode = 0;
                     }
-                    FreeIplImage(rgbImage);
-                    continue;
+
+                    emit error(_userInfo);
+
+                }else{
+                    _userInfo.errorStr = "人员识别失败!";
+                    emit error(_userInfo);//人员识别失败
                 }
+            }
+            else{
+                //参数错误
+            }
+        }
+            break;
+        case PairMatch:     //1:1
+        {
+            MFloat maxThreshold = 0.0;
+            MRESULT ret = MOK;
 
-                //特征提取
-                start = clock();
-                ASF_SingleFaceInfo m_curFaceInfo  = {rgbFaceInfos.faceRect[0],rgbFaceInfos.faceOrient[0]};
-
-                MRESULT detectRes = m_videoFaceEngine.PreExtractFeature(rgbImage,
-                    faceFeature, m_curFaceInfo);
-
-                count = clock() - start;
-                std::cout << "Extract Feature time: "
-                    << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
-
-                FreeIplImage(rgbImage);
-
-                if (MOK != detectRes)
-                {
-                    continue;
-                }
-
-                MFloat maxThreshold = 0.0;
-
-                MRESULT ret = MOK;
-                int id = -1;
-
+            if(curFeatureMap.contains(_userInfo.trackID)){
                 start = clock();
 
-                //1:N
-                QMapIterator<int,ASF_FaceFeature> i(tmp_map);
-                while (i.hasNext()) {
-                    i.next();
-                    ASF_FaceFeature feature2 = i.value();
+                ASF_FaceFeature feature2 = curFeatureMap.value(_userInfo.trackID);
+                if(feature2.feature != NULL){
                     MFloat confidenceLevel = 0;
                     ret = m_videoFaceEngine.FacePairMatching(confidenceLevel, faceFeature, feature2);
                     if(ret == MOK && confidenceLevel > maxThreshold){
-                        id = i.key();
                         maxThreshold = confidenceLevel;
-                        if(maxThreshold > g_compareThreshold)   break;
                     }
                 }
 
@@ -342,29 +381,40 @@ void FaceDetecter::run()
                 std::cout << "FacePair matched time: "
                     << 1000.0 * count / CLOCKS_PER_SEC << "ms" << std::endl;
 
-                //超过阈值则表示对比成功
+                qDebug() << QString("FacePair Threshold:%1").arg(maxThreshold);
 
+                //超过阈值则表示对比成功
                 if ((g_compareThreshold >= 0) &&
-                    (maxThreshold >= g_compareThreshold) &&
-                    isRGBAlive && isIRAlive)
+                        (maxThreshold >= g_compareThreshold))
                 {
-                    qDebug() << QString("ID:%1,Level:%2,RGB活体").arg(id).arg(maxThreshold);
+                    qDebug() << QString("ID:%1,Level:%2,RGB活体").arg(_userInfo.trackID).arg(maxThreshold);
+                        _userInfo.resCode = 0;
+                        _userInfo.errorStr = QString("1:1对比成功!对比ID:%1").arg(_userInfo.trackID);
+                        emit error(_userInfo);//人员ID
                 }
-                else if (isRGBAlive)
-                {
-                    qDebug() << QString("RGB活体,level:%2").arg(maxThreshold);
+                else if((g_compareThreshold >= 0) && (maxThreshold < g_compareThreshold) ){
+                        _userInfo.errorStr = QString("1:1对比失败!对比ID:%1").arg(_userInfo.trackID);
+                        emit error(_userInfo);//人员识别失败
+                }
+                else{
+                    _userInfo.errorStr = QString("1:1对比失败!对比ID:%1,原因:阈值错误").arg(_userInfo.trackID);
+                    emit error(_userInfo);//人员识别失败
                 }
             }
             else{
-                FreeIplImage(rgbImage);
+                _userInfo.errorStr = QString("1:1对比失败!ID错误,错误ID:%1").arg(_userInfo.trackID);
+                emit error(_userInfo);//人员识别失败
             }
         }
-        else{
-            FreeIplImage(rgbImage);
-            msleep(500);
-            continue;
-        }//End if
+            break;
+        case DoNothing:
+            break;
+        default:
+            break;
+        }
 
+        //操作完成后,进入等待状态
+        clearUserInfo();
     }
 
     SafeFree(faceFeature.feature);
@@ -394,8 +444,8 @@ void FaceDetecter::recvIrFrame(cv::Mat frame)
     {
         QMutexLocker locker(&irMutex);
         IplImage irImage(frame);
-         if(m_curIrVideoImage)
-             cvReleaseImage(&m_curIrVideoImage);
+        if(m_curIrVideoImage)
+            cvReleaseImage(&m_curIrVideoImage);
 
         m_curIrVideoImage = cvCloneImage(&irImage);
     }

@@ -14,6 +14,7 @@
 ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
 {    
     qRegisterMetaType<cv::Mat>("cv::Mat");
+    qRegisterMetaType<UserFaceInformation>("UserFaceInformation");
 
     if(!QFile::exists(INI_FILE))    //创建默认配置文件
     {
@@ -54,6 +55,8 @@ ArcFaceManager::ArcFaceManager(QObject *parent) : QObject(parent)
     connect(irCamera,&CameraThread::cameraOpened,this,&ArcFaceManager::CameraOpened);
     connect(irCamera,&CameraThread::finished,this,&ArcFaceManager::CameraClosed);
 
+    connect(m_detecter,&FaceDetecter::error,this,&ArcFaceManager::error);
+
     //初始化时要根据需要设置需要初始化的属性
     MRESULT faceRes = m_imageFaceEngine.ActiveSDK((char*)m_config.appID.toStdString().c_str(),
                                                   (char*)m_config.sdkKey.toStdString().c_str(),(char*)m_config.activeKey.toStdString().c_str());
@@ -83,8 +86,10 @@ ArcFaceManager::~ArcFaceManager()
     delete m_detecter;
     delete rgbCamera;
     delete irCamera;
+
     //应用程序关闭时,必须销毁引擎,否则会造成内存泄漏。
     m_imageFaceEngine.UnInitEngine();
+
     ClearFaceFeatures();
     SafeFree(m_curStaticImage);
 }
@@ -273,7 +278,7 @@ MRESULT ArcFaceManager::ClearFaceFeatures()
     {
         QMutexLocker locker(&m_mutex);
         foreach(ASF_FaceFeature feature,m_featuresMap){
-            SafeFree(feature.feature);
+            SafeFree(feature.feature);  //???
         }
         m_featuresMap.clear();
     }
@@ -286,6 +291,20 @@ ASF_FaceFeature ArcFaceManager::LastFaceFeature()
     return m_curStaticImageFeature;
 }
 
+ASF_FaceFeature ArcFaceManager::SelectVideoFaceFeatureByID(int id)
+{
+    if(m_featuresMap.contains(id)){
+        return m_featuresMap.value(id);
+    }
+
+    return ASF_FaceFeature{NULL,0};
+}
+
+void ArcFaceManager::setCompareThreshold(float val)
+{
+    if(m_detecter)    m_detecter->setCompareThreshold(val);
+}
+
 MRESULT ArcFaceManager::FacePairMatching(MFloat &confidenceLevel, ASF_FaceFeature feature1, ASF_FaceFeature feature2, ASF_CompareModel compareModel)
 {
     return m_imageFaceEngine.FacePairMatching(confidenceLevel,feature1,feature2,compareModel);
@@ -293,17 +312,22 @@ MRESULT ArcFaceManager::FacePairMatching(MFloat &confidenceLevel, ASF_FaceFeatur
 
 MRESULT ArcFaceManager::FaceMultiMathing(MFloat &confidenceLevel, ASF_FaceFeature feature, int& id, ASF_CompareModel compareModel)
 {
+    confidenceLevel = 0.0;
     MRESULT ret = MOK;
-    QMapIterator<int,ASF_FaceFeature> i(m_featuresMap);
+    QMapIterator<int,ASF_FaceFeature> i(m_featuresMap);    
+
+    MFloat maxThreshold = 0.0;
     while (i.hasNext()) {
         i.next();
         ASF_FaceFeature feature2 = i.value();
         ret = m_imageFaceEngine.FacePairMatching(confidenceLevel,feature,feature2,compareModel);
-        if((ret == MOK )&& (confidenceLevel > 0.0)){
+        if((ret == MOK )&& (confidenceLevel > maxThreshold)){
             id = i.key();
-            break;
+            maxThreshold = confidenceLevel;
         }
     }
+
+    confidenceLevel = maxThreshold;
 
     return ret;
 }
@@ -320,6 +344,11 @@ MRESULT ArcFaceManager::DetecterControler(UserFaceInformation info)
     m_detecter->Controler(info);
 
     return 0;
+}
+
+ASF_Flag ArcFaceManager::DetecterSate()
+{
+    return m_detecter->DetecterSate();
 }
 
 void ArcFaceManager::ReadSetting()

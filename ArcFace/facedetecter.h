@@ -59,11 +59,17 @@ private:
 
     UserFaceInformation curUserInfo;
     ASF_Flag curFlag;
+    bool m_loadFeatures = false;    //是否需要载入特征库
+    void clearUserInfo();
+
 protected:
     void run() override;
 public slots:
     void recvRgbFrame(cv::Mat frame);
     void recvIrFrame(cv::Mat frame);
+
+signals:
+    void error(const UserFaceInformation &info);
 };
 
 #endif // FACEDETECTER_H

@@ -24,16 +24,6 @@ public:
         VideoType,
         UnknownType = -1
     };
-
-//    enum PurposeFlag{
-//        Identify,			//认证 1:1
-//        RecognizeLocal,     //识别 1:N
-//        RecognizeNet,       //网络识别,此处只发送人脸特征
-//        RegisterFace,		//本地注册
-//        UnregisterFace,		//删除本地注册信息
-//        UnknownRequest = -1,
-//    };
-
 private slots:
     void on_pushButton_clicked();
 
@@ -52,6 +42,8 @@ private slots:
     void on_pushButton_5_clicked();
 
     void rcvRgbFram(cv::Mat);
+
+    void errorSlot(const UserFaceInformation &info);
 private:
     Ui::MainWindow *ui;
 
@@ -85,5 +77,11 @@ private:
 
     void updateLocalFaceFeature();
     ASF_FaceFeature m_curDatabaseFeature;   //当前从数据库获取的人脸特征
+
+    bool isClosing = false;
+
+    void createDatabase();
+protected:
+    void closeEvent(QCloseEvent *event);
 };
 #endif // MAINWINDOW_H

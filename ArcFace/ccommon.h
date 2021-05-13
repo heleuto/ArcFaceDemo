@@ -1,5 +1,6 @@
 ﻿#ifndef CCOMMON_H
 #define CCOMMON_H
+#include <QString>
 
 #define FACE_FEATURE_SIZE 1032
 
@@ -21,12 +22,13 @@ struct UserFaceInformation{
     int trackID = -1;            //人脸id
     int clashId = -1;            //冲突人脸id
     int resCode = -1;            //操作结果 0:操作成功
-
+    QString errorStr = QString();
     void clear(){
         _asfFlag = DoNothing;
         trackID = -1;
         clashId = -1;
         resCode = -1;
+        errorStr.clear();
     }
 };
 #endif // CCOMMON_H
